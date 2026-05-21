@@ -16,10 +16,19 @@
   transition: width 180ms ease;
   display: flex;
   flex-direction: column;
+  /* subtle visible strip so users can find it even with 0 markers */
+  background: rgba(148, 163, 184, 0.12);
+  border-radius: 4px;
 }
 
 .rail--expanded {
   width: 16px;
+  background: rgba(148, 163, 184, 0.18);
+}
+
+@media (prefers-color-scheme: light) {
+  .rail { background: rgba(100, 116, 139, 0.1); }
+  .rail--expanded { background: rgba(100, 116, 139, 0.15); }
 }
 
 /* individual marker wrapper — positioned absolutely within rail */

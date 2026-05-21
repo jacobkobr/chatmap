@@ -4,7 +4,6 @@ import tailwindcss from "@tailwindcss/vite";
 import { resolve } from "path";
 import { copyFileSync } from "fs";
 
-// copies manifest.json into dist after every build
 function copyManifest(): Plugin {
   return {
     name: "copy-manifest",
@@ -25,13 +24,11 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        content: resolve(__dirname, "src/content/index.tsx"),
         background: resolve(__dirname, "src/background/serviceWorker.ts"),
         options: resolve(__dirname, "options/index.html"),
       },
       output: {
         entryFileNames: (chunk) => {
-          if (chunk.name === "content") return "content/index.js";
           if (chunk.name === "background") return "background/serviceWorker.js";
           return "[name]/[name].js";
         },

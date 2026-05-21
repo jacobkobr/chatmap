@@ -4,8 +4,8 @@
   "description": "right-side minimap for chatgpt conversations",
   "private": true,
   "scripts": {
-    "dev": "vite build --watch",
-    "build": "vite build",
+    "dev": "vite build --watch --config vite.content.config.ts",
+    "build": "vite build && vite build --config vite.content.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
