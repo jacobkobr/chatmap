@@ -7,6 +7,10 @@ import { resolve } from "path";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // replace process.env.NODE_ENV — not available in content script context
+  define: {
+    "process.env.NODE_ENV": JSON.stringify("production"),
+  },
   build: {
     outDir: "dist",
     emptyOutDir: false, // don't wipe dist — the main build runs first
