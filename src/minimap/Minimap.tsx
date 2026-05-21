@@ -14,6 +14,12 @@ function scrollTo(el: HTMLElement, reduced: boolean) {
   el.scrollIntoView({ behavior: reduced ? "instant" : "smooth", block: "start" });
 }
 
+// 14px per message, clamped between 80px and 85% of viewport
+function railHeight(count: number): number {
+  const raw = Math.max(count, 6) * 14;
+  return Math.min(raw, Math.round(window.innerHeight * 0.85));
+}
+
 export function Minimap({ adapter, settings }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
@@ -62,9 +68,12 @@ export function Minimap({ adapter, settings }: Props) {
     if (visible[next]) scrollTo(visible[next].element, settings.reducedMotion);
   }
 
+  const height = railHeight(visible.length);
+
   return (
     <div
       className={`rail${expanded ? " rail--expanded" : ""}`}
+      style={{ height: `${height}px` }}
       onMouseEnter={expand}
       onMouseLeave={scheduleCollapse}
       aria-label="conversation minimap"

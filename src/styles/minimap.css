@@ -9,7 +9,7 @@
   top: 50%;
   transform: translateY(-50%);
   width: 20px;
-  max-height: 80vh;
+  /* height is set dynamically via inline style based on message count */
   z-index: 2147483640;
   pointer-events: auto;
   display: flex;
@@ -52,7 +52,7 @@
   position: relative;
   flex: 1;
   width: 100%;
-  min-height: 60px;
+  min-height: 40px;
   /* light track line so the rail is visible even with no markers */
   background: rgba(148, 163, 184, 0.08);
   border-radius: 3px;
