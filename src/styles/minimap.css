@@ -1,0 +1,166 @@
+/* injected into shadow root — scoped, no leakage to host page */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+/* rail — the thin vertical strip */
+.rail {
+  position: fixed;
+  right: 20px;
+  top: 0;
+  width: 8px;
+  height: 100vh;
+  z-index: 2147483640;
+  pointer-events: auto;
+  transition: width 180ms ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.rail--expanded {
+  width: 16px;
+}
+
+/* individual marker wrapper — positioned absolutely within rail */
+.marker-wrapper {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* the clickable bar */
+.marker {
+  display: block;
+  width: 100%;
+  height: 4px;
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+  padding: 0;
+  transition: height 120ms ease, opacity 120ms ease;
+  opacity: 0.55;
+}
+
+.marker:hover,
+.rail--expanded .marker {
+  height: 6px;
+  opacity: 0.9;
+}
+
+/* marker colors — neutral accent */
+.marker--user       { background: #94a3b8; }
+.marker--assistant  { background: #64748b; }
+.marker--code       { background: #7c3aed; }
+.marker--long       { background: #0ea5e9; }
+.marker--link       { background: #059669; }
+
+/* blue-purple accent */
+:host([data-accent="blue-purple"]) .marker--user      { background: #818cf8; }
+:host([data-accent="blue-purple"]) .marker--assistant { background: #a78bfa; }
+
+/* chatgpt accent */
+:host([data-accent="chatgpt"]) .marker--user      { background: #10a37f; }
+:host([data-accent="chatgpt"]) .marker--assistant { background: #ececec; }
+
+/* preview card — shown on marker hover */
+.marker-preview {
+  position: absolute;
+  right: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  pointer-events: none;
+}
+
+.preview-card {
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 10px 12px;
+  width: 240px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* light mode detection */
+@media (prefers-color-scheme: light) {
+  .preview-card {
+    background: #ffffff;
+    color: #1e293b;
+    border-color: #e2e8f0;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  }
+  .preview-role--user    { color: #0369a1; }
+  .preview-role--assistant { color: #374151; }
+}
+
+.preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.preview-role {
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.preview-role--user      { color: #7dd3fc; }
+.preview-role--assistant { color: #94a3b8; }
+
+.preview-pos {
+  font-size: 10px;
+  color: #64748b;
+}
+
+.preview-badges {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.preview-badge {
+  background: #334155;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+.preview-text {
+  margin: 0;
+  font-size: 12px;
+  color: #cbd5e1;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (prefers-color-scheme: light) {
+  .preview-text { color: #374151; }
+  .preview-badge { background: #f1f5f9; color: #64748b; }
+}
+
+.rail-empty {
+  color: #64748b;
+  font-size: 10px;
+  font-family: system-ui, sans-serif;
+  writing-mode: vertical-rl;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}

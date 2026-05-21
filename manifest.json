@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "ThreadMap",
+  "version": "0.1.0",
+  "description": "Adds a hoverable minimap to long ChatGPT conversations so you can jump between messages, code blocks, links, and important answers.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*"
+  ],
+  "background": {
+    "service_worker": "background/serviceWorker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ],
+      "js": ["content/index.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options/index.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
