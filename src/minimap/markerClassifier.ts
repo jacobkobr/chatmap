@@ -22,6 +22,7 @@ export function featureLabels(msg: ChatMessageRecord): string[] {
 
 // css class suffix for marker color based on role + features
 export function markerVariant(msg: ChatMessageRecord): string {
+  if (msg.role === "unknown") return "unknown";
   if (msg.role === "user") return "user";
   if (msg.features.includes("code")) return "code";
   if (msg.features.includes("long-answer")) return "long";

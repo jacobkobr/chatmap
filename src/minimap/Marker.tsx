@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import type { ChatMessageRecord, ThreadMapSettings } from "../shared/types";
 import { PreviewCard } from "./PreviewCard";
 import { markerVariant } from "./markerClassifier";
@@ -14,9 +14,18 @@ interface Props {
   expanded: boolean;
 }
 
-export function Marker({ msg, index, total, topPercent, settings, active, expanded }: Props) {
+export function Marker({ msg, index, total, topPercent, settings, active }: Props) {
   const [hovered, setHovered] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const variant = markerVariant(msg);
+
+  function cancelClose() {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+  }
+
+  function scheduleClose() {
+    closeTimer.current = setTimeout(() => setHovered(false), 260);
+  }
 
   function scrollToMessage() {
     msg.element.scrollIntoView({
@@ -24,15 +33,18 @@ export function Marker({ msg, index, total, topPercent, settings, active, expand
       block: "start",
     });
     msg.element.classList.add("threadmap-highlight");
-    setTimeout(() => msg.element.classList.remove("threadmap-highlight"), HIGHLIGHT_DURATION_MS);
+    setTimeout(
+      () => msg.element.classList.remove("threadmap-highlight"),
+      HIGHLIGHT_DURATION_MS
+    );
   }
 
   return (
     <div
       className="marker-wrapper"
       style={{ top: `${topPercent}%` }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={() => { cancelClose(); setHovered(true); }}
+      onMouseLeave={scheduleClose}
     >
       <button
         className={`marker marker--${variant}${active ? " marker--active" : ""}`}
@@ -40,8 +52,12 @@ export function Marker({ msg, index, total, topPercent, settings, active, expand
         aria-label={`message ${index + 1}: ${msg.textPreview.slice(0, 40)}`}
       />
 
-      {(hovered || (active && expanded)) && (
-        <div className="marker-preview">
+      {hovered && (
+        <div
+          className="marker-preview"
+          onMouseEnter={cancelClose}
+          onMouseLeave={scheduleClose}
+        >
           <PreviewCard msg={msg} index={index} total={total} />
         </div>
       )}

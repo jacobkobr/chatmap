@@ -47,12 +47,19 @@
   .rail-arrow:hover { color: #0f172a; }
 }
 
-/* ── track — the scrollable region markers sit inside ───── */
+/* ── track — fills space between the two arrows ─────────── */
 .rail-track {
   position: relative;
   flex: 1;
   width: 100%;
-  min-height: 40px;
+  min-height: 60px;
+  /* light track line so the rail is visible even with no markers */
+  background: rgba(148, 163, 184, 0.08);
+  border-radius: 3px;
+}
+
+@media (prefers-color-scheme: light) {
+  .rail-track { background: rgba(100, 116, 139, 0.08); }
 }
 
 /* ── marker wrapper — absolutely positioned in track ─────── */
@@ -102,6 +109,7 @@
 .marker--code       { background: #818cf8; width: 100%; }
 .marker--long       { background: #38bdf8; width: 100%; }
 .marker--link       { background: #34d399; width: 100%; }
+.marker--unknown    { background: #475569; width: 70%; opacity: 0.4; }
 
 .marker--active.marker--user      { background: #cbd5e1; }
 .marker--active.marker--assistant { background: #94a3b8; }
@@ -127,7 +135,7 @@
   top: 50%;
   transform: translateY(-50%);
   z-index: 1;
-  pointer-events: none;
+  pointer-events: auto;  /* allows mouse to move onto preview without closing it */
 }
 
 .preview-card {

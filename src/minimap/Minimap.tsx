@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { ThreadMapSettings } from "../shared/types";
 import type { ChatSiteAdapter } from "../adapters/types";
 import { useMessageIndex } from "./useMessageIndex";
@@ -11,49 +11,63 @@ interface Props {
   settings: ThreadMapSettings;
 }
 
-function scrollToIndex(el: HTMLElement, reduced: boolean) {
+function scrollTo(el: HTMLElement, reduced: boolean) {
   el.scrollIntoView({ behavior: reduced ? "instant" : "smooth", block: "start" });
 }
 
 export function Minimap({ adapter, settings }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
+  const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { messages, scrollHeight } = useMessageIndex(adapter);
 
   const visible = messages.filter((m) => isMarkerVisible(m, settings));
 
-  // track which message is closest to the current scroll position
+  // track viewport scroll position to highlight nearest marker
   useEffect(() => {
-    function onScroll() {
-      const mid = window.scrollY + window.innerHeight / 3;
+    function update() {
+      const mid = window.scrollY + window.innerHeight * 0.35;
       let best = -1;
       let bestDist = Infinity;
       visible.forEach((m, i) => {
         const dist = Math.abs(m.top - mid);
-        if (dist < bestDist) { bestDist = dist; best = i; }
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = i;
+        }
       });
       setActiveIdx(best);
     }
-    window.addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
-    return () => window.removeEventListener("scroll", onScroll);
+    window.addEventListener("scroll", update, { passive: true });
+    update();
+    return () => window.removeEventListener("scroll", update);
   }, [visible]);
+
+  function expand() {
+    if (collapseTimer.current) clearTimeout(collapseTimer.current);
+    setExpanded(true);
+  }
+
+  function scheduleCollapse() {
+    collapseTimer.current = setTimeout(() => setExpanded(false), 300);
+  }
 
   function goUp() {
     const prev = activeIdx <= 0 ? visible.length - 1 : activeIdx - 1;
-    if (visible[prev]) scrollToIndex(visible[prev].element, settings.reducedMotion);
+    if (visible[prev]) scrollTo(visible[prev].element, settings.reducedMotion);
   }
 
   function goDown() {
-    const next = activeIdx < 0 || activeIdx >= visible.length - 1 ? 0 : activeIdx + 1;
-    if (visible[next]) scrollToIndex(visible[next].element, settings.reducedMotion);
+    const next =
+      activeIdx < 0 || activeIdx >= visible.length - 1 ? 0 : activeIdx + 1;
+    if (visible[next]) scrollTo(visible[next].element, settings.reducedMotion);
   }
 
   return (
     <div
       className={`rail${expanded ? " rail--expanded" : ""}`}
-      onMouseEnter={() => setExpanded(true)}
-      onMouseLeave={() => setExpanded(false)}
+      onMouseEnter={expand}
+      onMouseLeave={scheduleCollapse}
       aria-label="conversation minimap"
       role="navigation"
     >
@@ -64,16 +78,18 @@ export function Minimap({ adapter, settings }: Props) {
       <div className="rail-track">
         {visible.map((msg) => {
           const topPercent = clamp((msg.top / scrollHeight) * 100, 0, 99);
-          const idx = messages.indexOf(msg);
+          const globalIdx = messages.indexOf(msg);
+          const isActive = visible[activeIdx] === msg;
+
           return (
             <Marker
               key={msg.id}
               msg={msg}
-              index={idx}
+              index={globalIdx}
               total={messages.length}
               topPercent={topPercent}
               settings={settings}
-              active={idx === messages.indexOf(visible[activeIdx] ?? ({} as never))}
+              active={isActive}
               expanded={expanded}
             />
           );

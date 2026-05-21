@@ -4,6 +4,14 @@
   "version": "0.1.0",
   "description": "Adds a hoverable minimap to long ChatGPT conversations so you can jump between messages, code blocks, links, and important answers.",
   "permissions": ["storage"],
+  "action": {
+    "default_title": "ThreadMap — click to open settings",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*"
