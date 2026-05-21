@@ -5,39 +5,45 @@
 /* ── rail ────────────────────────────────────────────────── */
 .rail {
   position: fixed;
-  right: 52px;       /* left of scrollbar + chatgpt nav buttons */
+  right: 14px;
   top: 50%;
   transform: translateY(-50%);
-  width: 20px;
-  /* height is set dynamically via inline style based on message count */
+  width: 6px;
+  /* height set via inline style based on message count */
   z-index: 2147483640;
   pointer-events: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  transition: width 160ms ease, opacity 160ms ease;
-  opacity: 0.45;
-  border-radius: 10px;
+  gap: 2px;
+  transition: width 180ms ease, opacity 180ms ease;
+  opacity: 0.4;
 }
 
 .rail:hover,
 .rail--expanded {
   opacity: 1;
-  width: 22px;
+  width: 10px;
 }
 
-/* ── nav arrows ──────────────────────────────────────────── */
+/* ── nav arrows — hidden until hover ─────────────────────── */
 .rail-arrow {
   background: none;
   border: none;
   color: #94a3b8;
-  font-size: 8px;
+  font-size: 7px;
   cursor: pointer;
-  padding: 2px;
+  padding: 2px 0;
   line-height: 1;
   flex-shrink: 0;
-  transition: color 120ms;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease, color 120ms ease;
+}
+
+.rail-arrow--visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .rail-arrow:hover { color: #e2e8f0; }
@@ -47,22 +53,21 @@
   .rail-arrow:hover { color: #0f172a; }
 }
 
-/* ── track — fills space between the two arrows ─────────── */
+/* ── track — fills space between arrows ──────────────────── */
 .rail-track {
   position: relative;
   flex: 1;
   width: 100%;
   min-height: 40px;
-  /* light track line so the rail is visible even with no markers */
-  background: rgba(148, 163, 184, 0.08);
+  background: rgba(148, 163, 184, 0.07);
   border-radius: 3px;
 }
 
 @media (prefers-color-scheme: light) {
-  .rail-track { background: rgba(100, 116, 139, 0.08); }
+  .rail-track { background: rgba(100, 116, 139, 0.07); }
 }
 
-/* ── marker wrapper — absolutely positioned in track ─────── */
+/* ── marker wrapper ──────────────────────────────────────── */
 .marker-wrapper {
   position: absolute;
   left: 0;
@@ -70,49 +75,54 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 0;               /* height is 0; the marker itself has height */
+  height: 0;
 }
 
-/* ── the marker pill ─────────────────────────────────────── */
+/* ── tick marker ─────────────────────────────────────────── */
 .marker {
-  display: block;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
-  height: 3px;
+  height: 2px;
   border: none;
   border-radius: 2px;
   cursor: pointer;
   padding: 0;
-  transition: height 100ms ease, opacity 100ms ease, width 100ms ease;
-  opacity: 0.6;
+  opacity: 0.5;
   outline: none;
+  transition: height 100ms ease, opacity 100ms ease, background 100ms ease, width 100ms ease;
+  animation: tick-in 220ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
-.marker:hover,
-.marker--active {
-  height: 4px;
-  opacity: 1;
+@keyframes tick-in {
+  from { transform: scaleX(0); opacity: 0; }
+  to   { transform: scaleX(1); opacity: 0.5; }
 }
 
-/* user = shorter, assistant = full width */
+.marker:hover { height: 3px; opacity: 0.85; }
+.marker--active { height: 3px; opacity: 1; }
+
+/* user = narrower, slightly dimmer */
 .marker--user {
-  width: 55%;
+  width: 42%;
   background: #94a3b8;
-  margin-left: auto;
-  margin-right: auto;
 }
 
-.marker--assistant {
-  width: 100%;
-  background: #64748b;
-}
+/* assistant = full width */
+.marker--assistant { width: 90%; background: #64748b; }
+.marker--code      { width: 90%; background: #818cf8; }
+.marker--long      { width: 90%; background: #38bdf8; }
+.marker--link      { width: 90%; background: #34d399; }
+.marker--unknown   { width: 55%; background: #475569; opacity: 0.3; }
 
-.marker--code       { background: #818cf8; width: 100%; }
-.marker--long       { background: #38bdf8; width: 100%; }
-.marker--link       { background: #34d399; width: 100%; }
-.marker--unknown    { background: #475569; width: 70%; opacity: 0.4; }
-
-.marker--active.marker--user      { background: #cbd5e1; }
+/* active states — brightened */
+.marker--active.marker--user      { background: #e2e8f0; }
 .marker--active.marker--assistant { background: #94a3b8; }
+.marker--active.marker--code      { background: #a5b4fc; }
+.marker--active.marker--long      { background: #7dd3fc; }
+.marker--active.marker--link      { background: #6ee7b7; }
 
 /* accent overrides */
 :host([data-accent="blue-purple"]) .marker--user      { background: #a5b4fc; }
@@ -126,26 +136,83 @@
   .marker--code      { background: #6366f1; }
   .marker--long      { background: #0ea5e9; }
   .marker--link      { background: #059669; }
+  .marker--active.marker--user      { background: #334155; }
+  .marker--active.marker--assistant { background: #1e293b; }
+}
+
+/* ── streaming tick — animated dots ─────────────────────── */
+.marker--streaming {
+  background: transparent !important;
+  height: 6px !important;
+  opacity: 1 !important;
+  overflow: visible;
+  animation: none;
+}
+
+.marker-dots {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.marker-dots span {
+  display: block;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: #7dd3fc;
+  animation: dot-pulse 1.1s ease-in-out infinite;
+}
+
+.marker-dots span:nth-child(2) { animation-delay: 0.18s; }
+.marker-dots span:nth-child(3) { animation-delay: 0.36s; }
+
+@keyframes dot-pulse {
+  0%, 80%, 100% { transform: scale(0.7); opacity: 0.4; }
+  40%           { transform: scale(1.3); opacity: 1; }
+}
+
+/* ── unread dot ──────────────────────────────────────────── */
+.marker-unread-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #f59e0b;
+  animation: unread-pop 250ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes unread-pop {
+  from { transform: scale(0); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
 }
 
 /* ── preview card ────────────────────────────────────────── */
 .marker-preview {
   position: absolute;
-  right: calc(100% + 12px);
+  right: calc(100% + 14px);
   top: 50%;
   transform: translateY(-50%);
   z-index: 1;
-  pointer-events: auto;  /* allows mouse to move onto preview without closing it */
+  pointer-events: auto;
+  animation: preview-slide-in 130ms ease;
+}
+
+@keyframes preview-slide-in {
+  from { opacity: 0; transform: translateY(-50%) translateX(8px); }
+  to   { opacity: 1; transform: translateY(-50%) translateX(0); }
 }
 
 .preview-card {
   background: #1e293b;
   color: #e2e8f0;
-  border: 1px solid #334155;
+  border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 10px;
   padding: 10px 12px;
   width: 220px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55), 0 1px 4px rgba(0, 0, 0, 0.3);
   font-family: system-ui, sans-serif;
   font-size: 12px;
   line-height: 1.5;
@@ -156,7 +223,7 @@
     background: #ffffff;
     color: #1e293b;
     border-color: #e2e8f0;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   }
 }
 
@@ -171,11 +238,12 @@
   font-weight: 600;
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
 }
 
 .preview-role--user      { color: #7dd3fc; }
 .preview-role--assistant { color: #94a3b8; }
+.preview-role--unknown   { color: #64748b; }
 
 @media (prefers-color-scheme: light) {
   .preview-role--user      { color: #0369a1; }
@@ -184,7 +252,7 @@
 
 .preview-pos {
   font-size: 10px;
-  color: #64748b;
+  color: #475569;
 }
 
 .preview-badges {
@@ -195,7 +263,7 @@
 }
 
 .preview-badge {
-  background: #334155;
+  background: rgba(255, 255, 255, 0.06);
   border-radius: 4px;
   padding: 1px 6px;
   font-size: 10px;

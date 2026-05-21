@@ -1,10 +1,13 @@
 import type { ChatMessageRecord, ThreadMapSettings } from "../shared/types";
+import { MIN_RESPONSE_LENGTH } from "../shared/constants";
 
 // determines whether a message should render a marker given current settings
 export function isMarkerVisible(
   msg: ChatMessageRecord,
   settings: ThreadMapSettings
 ): boolean {
+  // gate out near-empty assistant responses (typing artifacts, etc.)
+  if (msg.role === "assistant" && msg.fullTextLength < MIN_RESPONSE_LENGTH) return false;
   if (msg.role === "user" && !settings.showUserMessages) return false;
   if (msg.role === "assistant" && !settings.showAssistantMessages) return false;
   return true;

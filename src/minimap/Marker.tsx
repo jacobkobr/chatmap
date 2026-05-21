@@ -12,9 +12,20 @@ interface Props {
   settings: ThreadMapSettings;
   active: boolean;
   expanded: boolean;
+  streaming: boolean;
+  unread: boolean;
 }
 
-export function Marker({ msg, index, total, topPercent, settings, active }: Props) {
+export function Marker({
+  msg,
+  index,
+  total,
+  topPercent,
+  settings,
+  active,
+  streaming,
+  unread,
+}: Props) {
   const [hovered, setHovered] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const variant = markerVariant(msg);
@@ -39,18 +50,40 @@ export function Marker({ msg, index, total, topPercent, settings, active }: Prop
     );
   }
 
+  const classes = [
+    "marker",
+    `marker--${variant}`,
+    active ? "marker--active" : "",
+    streaming ? "marker--streaming" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <div
       className="marker-wrapper"
       style={{ top: `${topPercent}%` }}
-      onMouseEnter={() => { cancelClose(); setHovered(true); }}
+      onMouseEnter={() => {
+        cancelClose();
+        setHovered(true);
+      }}
       onMouseLeave={scheduleClose}
     >
       <button
-        className={`marker marker--${variant}${active ? " marker--active" : ""}`}
+        className={classes}
         onClick={scrollToMessage}
         aria-label={`message ${index + 1}: ${msg.textPreview.slice(0, 40)}`}
-      />
+      >
+        {streaming ? (
+          <span className="marker-dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
+        ) : unread ? (
+          <span className="marker-unread-dot" aria-hidden="true" />
+        ) : null}
+      </button>
 
       {hovered && (
         <div

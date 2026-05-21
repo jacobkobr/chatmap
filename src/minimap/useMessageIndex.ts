@@ -13,9 +13,8 @@ function buildRecords(
 
   const scrollEl = findScrollContainer(root);
   const scrollTop = scrollEl?.scrollTop ?? window.scrollY;
-  const rootTop = scrollEl
-    ? scrollEl.getBoundingClientRect().top
-    : 0;
+  const rootTop = scrollEl ? scrollEl.getBoundingClientRect().top : 0;
+
   return elements.map((el, i) => {
     const rect = el.getBoundingClientRect();
     const text = adapter.getMessageText(el);
@@ -39,7 +38,6 @@ function buildRecords(
   });
 }
 
-// find the scrollable container for the conversation
 function findScrollContainer(root: HTMLElement): HTMLElement | null {
   let el: HTMLElement | null = root;
   while (el && el !== document.body) {
@@ -47,15 +45,45 @@ function findScrollContainer(root: HTMLElement): HTMLElement | null {
     if (style.overflowY === "auto" || style.overflowY === "scroll") return el;
     el = el.parentElement;
   }
-  // check if root itself scrolls
   if (root.scrollHeight > root.clientHeight) return root;
   return null;
+}
+
+function isStreamingNow(): boolean {
+  return !!(
+    document.querySelector('[data-testid="stop-button"]') ||
+    document.querySelector('[class*="result-streaming"]') ||
+    document.querySelector('button[aria-label*="Stop"]')
+  );
+}
+
+function isNearBottom(): boolean {
+  const sh = document.documentElement.scrollHeight;
+  const sy = window.scrollY;
+  const ih = window.innerHeight;
+  // also check inner scroll containers
+  const innerSh = document.querySelector("main")?.scrollHeight ?? sh;
+  const innerSy = document.querySelector("main")?.scrollTop ?? 0;
+  const innerCheck = innerSh - innerSy - ih < 300;
+  return (sh - sy - ih < 300) || innerCheck;
 }
 
 export function useMessageIndex(adapter: ChatSiteAdapter | null) {
   const [messages, setMessages] = useState<ChatMessageRecord[]>([]);
   const [scrollHeight, setScrollHeight] = useState(1);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [unreadIds, setUnreadIds] = useState<Set<string>>(new Set());
   const scrollElRef = useRef<HTMLElement | null>(null);
+  const prevIdsRef = useRef<Set<string>>(new Set());
+
+  const markRead = useCallback((id: string) => {
+    setUnreadIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
 
   const refresh = useCallback(() => {
     if (!adapter) return;
@@ -76,7 +104,25 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
       1;
 
     setScrollHeight(sh || 1);
+
+    // detect newly appeared messages and mark unread if user isn't at bottom
+    const newIds = new Set(records.map((r) => r.id));
+    const appeared: string[] = [];
+    newIds.forEach((id) => {
+      if (!prevIdsRef.current.has(id)) appeared.push(id);
+    });
+    prevIdsRef.current = newIds;
+
+    if (appeared.length > 0 && !isNearBottom()) {
+      setUnreadIds((prev) => {
+        const next = new Set(prev);
+        appeared.forEach((id) => next.add(id));
+        return next;
+      });
+    }
+
     setMessages(records);
+    setIsStreaming(isStreamingNow());
   }, [adapter]);
 
   const debouncedRefresh = useRef(debounce(refresh as () => void, DEBOUNCE_MS));
@@ -90,14 +136,12 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
 
     refresh();
 
-    // watch whole document subtree so we catch chatgpt's async message renders
     const observer = new MutationObserver(() => debouncedRefresh.current());
     observer.observe(document.body, { childList: true, subtree: true });
 
     const onScroll = () => debouncedRefresh.current();
     window.addEventListener("scroll", onScroll, { passive: true });
 
-    // also watch the scroll container if found
     const watchScroll = () => {
       if (scrollElRef.current) {
         scrollElRef.current.addEventListener("scroll", onScroll, { passive: true });
@@ -112,5 +156,5 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
     };
   }, [adapter, refresh]);
 
-  return { messages, scrollHeight };
+  return { messages, scrollHeight, isStreaming, unreadIds, markRead };
 }

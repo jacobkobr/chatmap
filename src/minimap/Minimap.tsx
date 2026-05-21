@@ -4,6 +4,7 @@ import type { ChatSiteAdapter } from "../adapters/types";
 import { useMessageIndex } from "./useMessageIndex";
 import { Marker } from "./Marker";
 import { isMarkerVisible } from "./markerClassifier";
+import { DESKTOP_MIN_WIDTH } from "../shared/constants";
 
 interface Props {
   adapter: ChatSiteAdapter;
@@ -14,39 +15,62 @@ function scrollTo(el: HTMLElement, reduced: boolean) {
   el.scrollIntoView({ behavior: reduced ? "instant" : "smooth", block: "start" });
 }
 
-// 14px per message, clamped between 80px and 85% of viewport
+// 14px per message, 80px min, 88% viewport max
 function railHeight(count: number): number {
   const raw = Math.max(count, 6) * 14;
-  return Math.min(raw, Math.round(window.innerHeight * 0.85));
+  return Math.min(raw, Math.round(window.innerHeight * 0.88));
 }
 
 export function Minimap({ adapter, settings }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
+  const [isDesktop, setIsDesktop] = useState(
+    () => window.innerWidth >= DESKTOP_MIN_WIDTH
+  );
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { messages } = useMessageIndex(adapter);
+  const { messages, isStreaming, unreadIds, markRead } = useMessageIndex(adapter);
 
   const visible = messages.filter((m) => isMarkerVisible(m, settings));
 
-  // track viewport scroll position to highlight nearest marker
+  // desktop-only: hide minimap on narrow viewports
   useEffect(() => {
-    function update() {
-      const mid = window.scrollY + window.innerHeight * 0.35;
-      let best = -1;
-      let bestDist = Infinity;
-      visible.forEach((m, i) => {
-        const dist = Math.abs(m.top - mid);
-        if (dist < bestDist) {
-          bestDist = dist;
-          best = i;
-        }
-      });
-      setActiveIdx(best);
-    }
-    window.addEventListener("scroll", update, { passive: true });
-    update();
-    return () => window.removeEventListener("scroll", update);
-  }, [visible]);
+    const check = () => setIsDesktop(window.innerWidth >= DESKTOP_MIN_WIDTH);
+    window.addEventListener("resize", check, { passive: true });
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
+  // IntersectionObserver — active tick tracks the topmost visible message
+  useEffect(() => {
+    if (visible.length === 0) return;
+
+    const currentlyVisible = new Set<string>();
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          const msg = visible.find((m) => m.element === entry.target);
+          if (!msg) return;
+          if (entry.isIntersecting) {
+            currentlyVisible.add(msg.id);
+            markRead(msg.id);
+          } else {
+            currentlyVisible.delete(msg.id);
+          }
+        });
+
+        // active = topmost message currently intersecting the reading zone
+        const idx = visible.findIndex((m) => currentlyVisible.has(m.id));
+        if (idx !== -1) setActiveIdx(idx);
+      },
+      // reading zone: top 5% to 45% of viewport
+      { threshold: 0.1, rootMargin: "-5% 0px -55% 0px" }
+    );
+
+    visible.forEach((m) => observer.observe(m.element));
+    return () => observer.disconnect();
+  }, [visible, markRead]);
+
+  if (!isDesktop) return null;
 
   function expand() {
     if (collapseTimer.current) clearTimeout(collapseTimer.current);
@@ -69,6 +93,12 @@ export function Minimap({ adapter, settings }: Props) {
   }
 
   const height = railHeight(visible.length);
+  const lastAssistantIdx = (() => {
+    for (let i = visible.length - 1; i >= 0; i--) {
+      if (visible[i].role === "assistant") return i;
+    }
+    return -1;
+  })();
 
   return (
     <div
@@ -79,19 +109,24 @@ export function Minimap({ adapter, settings }: Props) {
       aria-label="conversation minimap"
       role="navigation"
     >
-      <button className="rail-arrow" onClick={goUp} aria-label="previous message">
+      <button
+        className={`rail-arrow${expanded ? " rail-arrow--visible" : ""}`}
+        onClick={goUp}
+        aria-label="previous message"
+      >
         ▲
       </button>
 
       <div className="rail-track">
         {visible.map((msg, i) => {
-          // even distribution — one slot per turn regardless of message length
           const topPercent =
             visible.length <= 1
               ? 50
               : (i / (visible.length - 1)) * 92 + 4;
           const globalIdx = messages.indexOf(msg);
-          const isActive = visible[activeIdx] === msg;
+          const isActive = i === activeIdx;
+          const isStreamingTick =
+            isStreaming && i === lastAssistantIdx && msg.role === "assistant";
 
           return (
             <Marker
@@ -103,12 +138,18 @@ export function Minimap({ adapter, settings }: Props) {
               settings={settings}
               active={isActive}
               expanded={expanded}
+              streaming={isStreamingTick}
+              unread={unreadIds.has(msg.id)}
             />
           );
         })}
       </div>
 
-      <button className="rail-arrow" onClick={goDown} aria-label="next message">
+      <button
+        className={`rail-arrow${expanded ? " rail-arrow--visible" : ""}`}
+        onClick={goDown}
+        aria-label="next message"
+      >
         ▼
       </button>
     </div>
