@@ -9,14 +9,17 @@ function buildRecords(
   root: HTMLElement
 ): ChatMessageRecord[] {
   const elements = adapter.getMessageElements(root);
-  const rootRect = root.getBoundingClientRect();
-  const scrollTop = root.scrollTop;
+  if (elements.length === 0) return [];
 
+  const scrollEl = findScrollContainer(root);
+  const scrollTop = scrollEl?.scrollTop ?? window.scrollY;
+  const rootTop = scrollEl
+    ? scrollEl.getBoundingClientRect().top
+    : 0;
   return elements.map((el, i) => {
     const rect = el.getBoundingClientRect();
     const text = adapter.getMessageText(el);
 
-    // reuse existing id if we already tagged this element
     let id = el.dataset.threadmapId;
     if (!id) {
       id = generateId(`msg-${i}`);
@@ -30,17 +33,29 @@ function buildRecords(
       textPreview: safeTextContent(el).slice(0, PREVIEW_CHAR_LIMIT),
       fullTextLength: text.length,
       features: adapter.getMessageFeatures(el, text),
-      // position relative to root, accounting for scroll
-      top: rect.top - rootRect.top + scrollTop,
+      top: rect.top - rootTop + scrollTop,
       height: rect.height,
     };
   });
 }
 
+// find the scrollable container for the conversation
+function findScrollContainer(root: HTMLElement): HTMLElement | null {
+  let el: HTMLElement | null = root;
+  while (el && el !== document.body) {
+    const style = getComputedStyle(el);
+    if (style.overflowY === "auto" || style.overflowY === "scroll") return el;
+    el = el.parentElement;
+  }
+  // check if root itself scrolls
+  if (root.scrollHeight > root.clientHeight) return root;
+  return null;
+}
+
 export function useMessageIndex(adapter: ChatSiteAdapter | null) {
   const [messages, setMessages] = useState<ChatMessageRecord[]>([]);
   const [scrollHeight, setScrollHeight] = useState(1);
-  const rootRef = useRef<HTMLElement | null>(null);
+  const scrollElRef = useRef<HTMLElement | null>(null);
 
   const refresh = useCallback(() => {
     if (!adapter) return;
@@ -51,9 +66,17 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
       return;
     }
 
-    rootRef.current = root;
-    setScrollHeight(root.scrollHeight || 1);
-    setMessages(buildRecords(adapter, root));
+    const records = buildRecords(adapter, root);
+    const scrollEl = findScrollContainer(root);
+    scrollElRef.current = scrollEl;
+
+    const sh =
+      scrollEl?.scrollHeight ??
+      document.documentElement.scrollHeight ??
+      1;
+
+    setScrollHeight(sh || 1);
+    setMessages(records);
   }, [adapter]);
 
   const debouncedRefresh = useRef(debounce(refresh as () => void, DEBOUNCE_MS));
@@ -67,26 +90,27 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
 
     refresh();
 
+    // watch whole document subtree so we catch chatgpt's async message renders
     const observer = new MutationObserver(() => debouncedRefresh.current());
-    const root = adapter.getConversationRoot();
-    if (root) {
-      observer.observe(root, { childList: true, subtree: true, characterData: true });
-    } else {
-      // watch body until root appears
-      observer.observe(document.body, { childList: true, subtree: false });
-    }
+    observer.observe(document.body, { childList: true, subtree: true });
 
-    // re-index on scroll so position calculations stay fresh
     const onScroll = () => debouncedRefresh.current();
     window.addEventListener("scroll", onScroll, { passive: true });
-    rootRef.current?.addEventListener("scroll", onScroll, { passive: true });
+
+    // also watch the scroll container if found
+    const watchScroll = () => {
+      if (scrollElRef.current) {
+        scrollElRef.current.addEventListener("scroll", onScroll, { passive: true });
+      }
+    };
+    watchScroll();
 
     return () => {
       observer.disconnect();
       window.removeEventListener("scroll", onScroll);
-      rootRef.current?.removeEventListener("scroll", onScroll);
+      scrollElRef.current?.removeEventListener("scroll", onScroll);
     };
   }, [adapter, refresh]);
 
-  return { messages, scrollHeight, root: rootRef.current };
+  return { messages, scrollHeight };
 }

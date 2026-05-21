@@ -3,28 +3,27 @@ import type { ChatMessageRole, ChatMessageFeature } from "../shared/types";
 import { safeTextContent } from "../shared/utils";
 import { LONG_ANSWER_THRESHOLD } from "../shared/constants";
 
-// multiple selector strategies, tried in order — chatgpt renames classes frequently
+// tried in order — chatgpt renames classes frequently
 const ROOT_SELECTORS = [
-  "[data-testid='conversation-turn-list']",
   "main [class*='react-scroll-to-bottom']",
-  "#thread-bottom",
+  "[data-testid='conversation-turn-list']",
   "main",
 ];
 
-// message container selectors, tried in order
+// message selectors tried in order
 const MESSAGE_SELECTORS = [
+  "article[data-testid^='conversation-turn-']",
   "[data-testid^='conversation-turn-']",
-  "[data-message-author-role]",
   "article[data-scroll-anchor]",
+  // broad fallback — any article not in nav/sidebar
+  "article",
 ];
 
-// role attribute locations to try
 function detectRole(el: HTMLElement): ChatMessageRole {
-  const attr = el.getAttribute("data-message-author-role");
-  if (attr === "user") return "user";
-  if (attr === "assistant") return "assistant";
+  const direct = el.getAttribute("data-message-author-role");
+  if (direct === "user") return "user";
+  if (direct === "assistant") return "assistant";
 
-  // fallback: look for role attr on child
   const child = el.querySelector("[data-message-author-role]");
   if (child) {
     const r = child.getAttribute("data-message-author-role");
@@ -32,26 +31,24 @@ function detectRole(el: HTMLElement): ChatMessageRole {
     if (r === "assistant") return "assistant";
   }
 
-  // fallback: testid contains "user" or "assistant"
   const testid = el.getAttribute("data-testid") ?? "";
-  if (testid.includes("human")) return "user";
+  if (testid.includes("human") || testid.includes("user")) return "user";
   if (testid.includes("assistant")) return "assistant";
 
-  // last resort: structural — user messages typically have a shorter, non-prose container
+  // structural heuristic
   const text = safeTextContent(el);
-  if (text.length < 600 && !el.querySelector("pre, code, ol, ul")) return "user";
+  if (text.length < 500 && !el.querySelector("pre, code, ol, ul, table")) return "user";
 
   return "unknown";
 }
 
-// exclude elements that aren't real conversation messages
 function isExcluded(el: HTMLElement): boolean {
-  // sidebar history items
-  if (el.closest("nav, aside, [data-testid='sidebar']")) return true;
-  // modal / dialog
+  // sidebar/nav — never conversation messages
+  if (el.closest("nav")) return true;
+  // modals
   if (el.closest("[role='dialog'], [role='alertdialog']")) return true;
-  // composer / input area
-  if (el.closest("form, [data-testid='composer']")) return true;
+  // the text input area (not all forms — chatgpt wraps the whole page in a form)
+  if (el.closest("#prompt-textarea, [data-testid='composer-background'], [contenteditable='true']")) return true;
   return false;
 }
 
@@ -71,7 +68,8 @@ const chatgptAdapter: ChatSiteAdapter = {
       const el = document.querySelector<HTMLElement>(sel);
       if (el) return el;
     }
-    return null;
+    // always return body as last resort so observer works
+    return document.body;
   },
 
   getMessageElements(root: HTMLElement): HTMLElement[] {
@@ -89,24 +87,20 @@ const chatgptAdapter: ChatSiteAdapter = {
   },
 
   getMessageText(element: HTMLElement): string {
-    // prefer the prose content block if present
     const prose =
-      element.querySelector<HTMLElement>("[class*='prose'], .markdown") ??
+      element.querySelector<HTMLElement>("[class*='prose'], .markdown, [class*='markdown']") ??
       element;
     return safeTextContent(prose);
   },
 
   getMessageFeatures(element: HTMLElement, text: string): ChatMessageFeature[] {
     const features: ChatMessageFeature[] = [];
-
     if (element.querySelector("pre, code")) features.push("code");
     if (element.querySelector("a[href]")) features.push("link");
     if (element.querySelector("img, picture, video")) features.push("image");
-    if (element.querySelector("[data-testid*='source'], cite")) features.push("source");
-    if (element.querySelector("svg[aria-label*='attachment'], [data-testid*='file']"))
-      features.push("attachment");
+    if (element.querySelector("[data-testid*='source'], cite, [class*='source']")) features.push("source");
+    if (element.querySelector("svg[aria-label*='attachment'], [data-testid*='file']")) features.push("attachment");
     if (text.length > LONG_ANSWER_THRESHOLD) features.push("long-answer");
-
     return features;
   },
 };

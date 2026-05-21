@@ -10,22 +10,21 @@ interface Props {
   total: number;
   topPercent: number;
   settings: ThreadMapSettings;
+  active: boolean;
+  expanded: boolean;
 }
 
-export function Marker({ msg, index, total, topPercent, settings }: Props) {
+export function Marker({ msg, index, total, topPercent, settings, active, expanded }: Props) {
   const [hovered, setHovered] = useState(false);
   const variant = markerVariant(msg);
 
   function scrollToMessage() {
-    const el = msg.element;
-    el.scrollIntoView({
+    msg.element.scrollIntoView({
       behavior: settings.reducedMotion ? "instant" : "smooth",
       block: "start",
     });
-
-    // brief highlight — adds a class then removes it
-    el.classList.add("threadmap-highlight");
-    setTimeout(() => el.classList.remove("threadmap-highlight"), HIGHLIGHT_DURATION_MS);
+    msg.element.classList.add("threadmap-highlight");
+    setTimeout(() => msg.element.classList.remove("threadmap-highlight"), HIGHLIGHT_DURATION_MS);
   }
 
   return (
@@ -36,12 +35,12 @@ export function Marker({ msg, index, total, topPercent, settings }: Props) {
       onMouseLeave={() => setHovered(false)}
     >
       <button
-        className={`marker marker--${variant}`}
+        className={`marker marker--${variant}${active ? " marker--active" : ""}`}
         onClick={scrollToMessage}
-        aria-label={`go to message ${index + 1}: ${msg.textPreview.slice(0, 40)}`}
+        aria-label={`message ${index + 1}: ${msg.textPreview.slice(0, 40)}`}
       />
 
-      {hovered && (
+      {(hovered || (active && expanded)) && (
         <div className="marker-preview">
           <PreviewCard msg={msg} index={index} total={total} />
         </div>
