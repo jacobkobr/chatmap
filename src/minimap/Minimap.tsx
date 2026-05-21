@@ -4,7 +4,6 @@ import type { ChatSiteAdapter } from "../adapters/types";
 import { useMessageIndex } from "./useMessageIndex";
 import { Marker } from "./Marker";
 import { isMarkerVisible } from "./markerClassifier";
-import { clamp } from "../shared/utils";
 
 interface Props {
   adapter: ChatSiteAdapter;
@@ -19,7 +18,7 @@ export function Minimap({ adapter, settings }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { messages, scrollHeight } = useMessageIndex(adapter);
+  const { messages } = useMessageIndex(adapter);
 
   const visible = messages.filter((m) => isMarkerVisible(m, settings));
 
@@ -76,8 +75,12 @@ export function Minimap({ adapter, settings }: Props) {
       </button>
 
       <div className="rail-track">
-        {visible.map((msg) => {
-          const topPercent = clamp((msg.top / scrollHeight) * 100, 0, 99);
+        {visible.map((msg, i) => {
+          // even distribution — one slot per turn regardless of message length
+          const topPercent =
+            visible.length <= 1
+              ? 50
+              : (i / (visible.length - 1)) * 92 + 4;
           const globalIdx = messages.indexOf(msg);
           const isActive = visible[activeIdx] === msg;
 

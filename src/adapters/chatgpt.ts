@@ -70,10 +70,15 @@ const chatgptAdapter: ChatSiteAdapter = {
 
   getMessageElements(root: HTMLElement): HTMLElement[] {
     for (const sel of MESSAGE_SELECTORS) {
-      const els = Array.from(root.querySelectorAll<HTMLElement>(sel)).filter(
+      const raw = Array.from(root.querySelectorAll<HTMLElement>(sel)).filter(
         (el) => !isExcluded(el)
       );
-      if (els.length > 0) return els;
+      if (raw.length === 0) continue;
+      // keep only outermost matches — drop any element that is inside another
+      const deduped = raw.filter(
+        (el) => !raw.some((other) => other !== el && other.contains(el))
+      );
+      return deduped;
     }
     return [];
   },
