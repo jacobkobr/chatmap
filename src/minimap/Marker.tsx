@@ -2,7 +2,6 @@ import { useState, useRef } from "react";
 import type { ChatMessageRecord, ThreadMapSettings } from "../shared/types";
 import { PreviewCard } from "./PreviewCard";
 import { markerVariant } from "./markerClassifier";
-import { HIGHLIGHT_DURATION_MS } from "../shared/constants";
 
 interface Props {
   msg: ChatMessageRecord;
@@ -14,6 +13,7 @@ interface Props {
   expanded: boolean;
   streaming: boolean;
   unread: boolean;
+  onScrollTo: (msg: ChatMessageRecord) => void;
 }
 
 export function Marker({
@@ -21,10 +21,10 @@ export function Marker({
   index,
   total,
   topPercent,
-  settings,
   active,
   streaming,
   unread,
+  onScrollTo,
 }: Props) {
   const [hovered, setHovered] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -36,18 +36,6 @@ export function Marker({
 
   function scheduleClose() {
     closeTimer.current = setTimeout(() => setHovered(false), 260);
-  }
-
-  function scrollToMessage() {
-    msg.element.scrollIntoView({
-      behavior: settings.reducedMotion ? "instant" : "smooth",
-      block: "start",
-    });
-    msg.element.classList.add("threadmap-highlight");
-    setTimeout(
-      () => msg.element.classList.remove("threadmap-highlight"),
-      HIGHLIGHT_DURATION_MS
-    );
   }
 
   const classes = [
@@ -71,7 +59,7 @@ export function Marker({
     >
       <button
         className={classes}
-        onClick={scrollToMessage}
+        onClick={() => onScrollTo(msg)}
         aria-label={`message ${index + 1}: ${msg.textPreview.slice(0, 40)}`}
       >
         {streaming ? (

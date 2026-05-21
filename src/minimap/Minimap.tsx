@@ -1,19 +1,19 @@
-import { useState, useEffect, useRef, useMemo } from "react";
-import type { ThreadMapSettings } from "../shared/types";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import type { ChatMessageRecord, ThreadMapSettings } from "../shared/types";
 import type { ChatSiteAdapter } from "../adapters/types";
 import { useMessageIndex } from "./useMessageIndex";
 import { Marker } from "./Marker";
 import { isMarkerVisible } from "./markerClassifier";
-import { DESKTOP_MIN_WIDTH } from "../shared/constants";
+import { DESKTOP_MIN_WIDTH, HIGHLIGHT_DURATION_MS } from "../shared/constants";
 
 interface Props {
   adapter: ChatSiteAdapter;
   settings: ThreadMapSettings;
 }
 
-const TOP_GAP = 72; // px gap from viewport top after scroll
+const TOP_GAP = 104; // px gap from viewport top after scroll
 
-function scrollTo(el: HTMLElement, reduced: boolean) {
+function scrollToElement(el: HTMLElement, reduced: boolean) {
   const behavior = reduced ? "instant" : "smooth";
   const rect = el.getBoundingClientRect();
 
@@ -52,7 +52,8 @@ export function Minimap({ adapter, settings }: Props) {
     () => window.innerWidth >= DESKTOP_MIN_WIDTH
   );
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { messages, isStreaming, unreadIds, markRead } = useMessageIndex(adapter);
+  const { messages, isStreaming, unreadIds, markRead, suppressRefresh } =
+    useMessageIndex(adapter);
 
   const visible = useMemo(
     () => messages.filter((m) => isMarkerVisible(m, settings)),
@@ -97,6 +98,20 @@ export function Minimap({ adapter, settings }: Props) {
     return () => observer.disconnect();
   }, [visible, markRead]);
 
+  // scroll to a message — suppress observer during chatgpt's lazy-render window
+  const handleScrollTo = useCallback(
+    (msg: ChatMessageRecord) => {
+      suppressRefresh(900);
+      scrollToElement(msg.element, settings.reducedMotion);
+      msg.element.classList.add("threadmap-highlight");
+      setTimeout(
+        () => msg.element.classList.remove("threadmap-highlight"),
+        HIGHLIGHT_DURATION_MS
+      );
+    },
+    [suppressRefresh, settings.reducedMotion]
+  );
+
   if (!isDesktop) return null;
 
   function expand() {
@@ -110,13 +125,13 @@ export function Minimap({ adapter, settings }: Props) {
 
   function goUp() {
     const prev = activeIdx <= 0 ? visible.length - 1 : activeIdx - 1;
-    if (visible[prev]) scrollTo(visible[prev].element, settings.reducedMotion);
+    if (visible[prev]) handleScrollTo(visible[prev]);
   }
 
   function goDown() {
     const next =
       activeIdx < 0 || activeIdx >= visible.length - 1 ? 0 : activeIdx + 1;
-    if (visible[next]) scrollTo(visible[next].element, settings.reducedMotion);
+    if (visible[next]) handleScrollTo(visible[next]);
   }
 
   const height = railHeight(visible.length);
@@ -167,6 +182,7 @@ export function Minimap({ adapter, settings }: Props) {
               expanded={expanded}
               streaming={isStreamingTick}
               unread={unreadIds.has(msg.id)}
+              onScrollTo={handleScrollTo}
             />
           );
         })}

@@ -35,42 +35,44 @@ const chatgptAdapter: ChatSiteAdapter = {
   },
 
   getMessageElements(root: HTMLElement): HTMLElement[] {
-    // chatgpt stamps data-message-author-role exactly once per message —
-    // this is more stable than article or testid selectors
-    const byRole = Array.from(
-      root.querySelectorAll<HTMLElement>("[data-message-author-role]")
-    ).filter((el) => !isExcluded(el));
-
-    if (byRole.length > 0) return keepOutermost(byRole);
-
-    // fallback: conversation-turn testids (older chatgpt builds)
+    // conversation-turn containers guarantee exactly one element per full turn —
+    // this bundles text + images + tool calls into a single marker
     const byTurn = Array.from(
       root.querySelectorAll<HTMLElement>("[data-testid^='conversation-turn-']")
     ).filter((el) => !isExcluded(el));
 
     if (byTurn.length > 0) return keepOutermost(byTurn);
 
-    return [];
+    // fallback: data-message-author-role (some chatgpt dom variations)
+    const byRole = Array.from(
+      root.querySelectorAll<HTMLElement>("[data-message-author-role]")
+    ).filter((el) => !isExcluded(el));
+
+    return byRole.length > 0 ? keepOutermost(byRole) : [];
   },
 
   getMessageRole(element: HTMLElement): ChatMessageRole {
-    const r = element.getAttribute("data-message-author-role");
-    if (r === "user") return "user";
-    if (r === "assistant") return "assistant";
-    // check nearest ancestor (handles fallback path)
-    const parent = element.closest<HTMLElement>("[data-message-author-role]");
-    if (parent) {
-      const pr = parent.getAttribute("data-message-author-role");
-      if (pr === "user") return "user";
-      if (pr === "assistant") return "assistant";
-    }
-    // check descendant (handles wrapper elements)
+    // direct attribute present (fallback path uses this)
+    const direct = element.getAttribute("data-message-author-role");
+    if (direct === "user") return "user";
+    if (direct === "assistant") return "assistant";
+
+    // look inside the turn container (primary path)
     const child = element.querySelector<HTMLElement>("[data-message-author-role]");
     if (child) {
       const cr = child.getAttribute("data-message-author-role");
       if (cr === "user") return "user";
       if (cr === "assistant") return "assistant";
     }
+
+    // look up the tree (handles edge cases)
+    const ancestor = element.closest<HTMLElement>("[data-message-author-role]");
+    if (ancestor) {
+      const ar = ancestor.getAttribute("data-message-author-role");
+      if (ar === "user") return "user";
+      if (ar === "assistant") return "assistant";
+    }
+
     return "unknown";
   },
 

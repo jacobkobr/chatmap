@@ -75,6 +75,13 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
   const [unreadIds, setUnreadIds] = useState<Set<string>>(new Set());
   const scrollElRef = useRef<HTMLElement | null>(null);
   const prevIdsRef = useRef<Set<string>>(new Set());
+  const suppressUntilRef = useRef(0);
+
+  // call before a programmatic scroll to stop observer from rebuilding
+  // while chatgpt lazy-renders previously off-screen messages
+  const suppressRefresh = useCallback((ms: number) => {
+    suppressUntilRef.current = Date.now() + ms;
+  }, []);
 
   const markRead = useCallback((id: string) => {
     setUnreadIds((prev) => {
@@ -137,12 +144,17 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
     refresh();
 
     // only rebuild on DOM mutations (new messages), not on scroll —
-    // positions are index-based and IntersectionObserver handles active tracking
-    const observer = new MutationObserver(() => debouncedRefresh.current());
+    // positions are index-based and IntersectionObserver handles active tracking.
+    // skip mutations that fire while suppressed (e.g. chatgpt lazy-rendering
+    // off-screen messages after a programmatic scroll).
+    const observer = new MutationObserver(() => {
+      if (Date.now() < suppressUntilRef.current) return;
+      debouncedRefresh.current();
+    });
     observer.observe(document.body, { childList: true, subtree: true });
 
     return () => observer.disconnect();
   }, [adapter, refresh]);
 
-  return { messages, scrollHeight, isStreaming, unreadIds, markRead };
+  return { messages, scrollHeight, isStreaming, unreadIds, markRead, suppressRefresh };
 }
