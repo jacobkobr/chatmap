@@ -10,7 +10,7 @@ export function injectHighlightStyle(): void {
   // we use a hard-coded string so no remote css is ever fetched
   const style = document.createElement("style");
   style.dataset.threadmap = "highlight";
-  style.textContent = `.threadmap-highlight{outline:2px solid rgba(99,102,241,.6)!important;outline-offset:4px!important;border-radius:4px!important;transition:outline .3s ease!important;}`;
+  style.textContent = `.threadmap-highlight{outline:2px solid rgba(180,180,180,.45)!important;outline-offset:6px!important;border-radius:6px!important;transition:outline .4s ease!important;}`;
   document.head.appendChild(style);
 }
 

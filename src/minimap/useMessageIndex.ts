@@ -136,24 +136,12 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
 
     refresh();
 
+    // only rebuild on DOM mutations (new messages), not on scroll —
+    // positions are index-based and IntersectionObserver handles active tracking
     const observer = new MutationObserver(() => debouncedRefresh.current());
     observer.observe(document.body, { childList: true, subtree: true });
 
-    const onScroll = () => debouncedRefresh.current();
-    window.addEventListener("scroll", onScroll, { passive: true });
-
-    const watchScroll = () => {
-      if (scrollElRef.current) {
-        scrollElRef.current.addEventListener("scroll", onScroll, { passive: true });
-      }
-    };
-    watchScroll();
-
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("scroll", onScroll);
-      scrollElRef.current?.removeEventListener("scroll", onScroll);
-    };
+    return () => observer.disconnect();
   }, [adapter, refresh]);
 
   return { messages, scrollHeight, isStreaming, unreadIds, markRead };

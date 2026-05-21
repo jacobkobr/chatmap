@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import type { ThreadMapSettings } from "../shared/types";
 import type { ChatSiteAdapter } from "../adapters/types";
 import { useMessageIndex } from "./useMessageIndex";
@@ -11,8 +11,32 @@ interface Props {
   settings: ThreadMapSettings;
 }
 
+const TOP_GAP = 72; // px gap from viewport top after scroll
+
 function scrollTo(el: HTMLElement, reduced: boolean) {
-  el.scrollIntoView({ behavior: reduced ? "instant" : "smooth", block: "start" });
+  const behavior = reduced ? "instant" : "smooth";
+  const rect = el.getBoundingClientRect();
+
+  // find inner scroll container (chatgpt uses one inside main)
+  let container: HTMLElement | null = el.parentElement;
+  while (container && container !== document.body) {
+    const s = getComputedStyle(container);
+    if (s.overflowY === "auto" || s.overflowY === "scroll") break;
+    container = container.parentElement;
+  }
+
+  if (container && container !== document.body) {
+    const cRect = container.getBoundingClientRect();
+    container.scrollTo({
+      top: container.scrollTop + rect.top - cRect.top - TOP_GAP,
+      behavior,
+    });
+  } else {
+    window.scrollTo({
+      top: window.scrollY + rect.top - TOP_GAP,
+      behavior,
+    });
+  }
 }
 
 // 14px per message, 80px min, 88% viewport max
@@ -30,7 +54,10 @@ export function Minimap({ adapter, settings }: Props) {
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { messages, isStreaming, unreadIds, markRead } = useMessageIndex(adapter);
 
-  const visible = messages.filter((m) => isMarkerVisible(m, settings));
+  const visible = useMemo(
+    () => messages.filter((m) => isMarkerVisible(m, settings)),
+    [messages, settings]
+  );
 
   // desktop-only: hide minimap on narrow viewports
   useEffect(() => {
