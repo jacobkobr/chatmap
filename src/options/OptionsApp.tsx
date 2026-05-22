@@ -15,18 +15,28 @@ function Toggle({
   checked: boolean;
   onChange: (v: boolean) => void;
 }) {
+  function toggle() {
+    onChange(!checked);
+  }
+
   return (
-    <label className="toggle-row">
+    <div className="toggle-row" onClick={toggle}>
       <span className="toggle-label">{label}</span>
+
       <button
+        type="button"
         role="switch"
+        aria-label={label}
         aria-checked={checked}
         className={`toggle-btn${checked ? " toggle-btn--on" : ""}`}
-        onClick={() => onChange(!checked)}
+        onClick={(e) => {
+          e.stopPropagation();
+          toggle();
+        }}
       >
         <span className="toggle-thumb" />
       </button>
-    </label>
+    </div>
   );
 }
 
@@ -44,6 +54,7 @@ function Select<T extends string>({
   return (
     <label className="select-row">
       <span className="select-label">{label}</span>
+
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as T)}
@@ -59,8 +70,6 @@ function Select<T extends string>({
   );
 }
 
-// modifier checkbox group. used for click-action bindings where no key is
-// needed (just a modifier combo paired with a mouse click).
 function ModifierEditor({
   bind,
   onChange,
@@ -68,22 +77,23 @@ function ModifierEditor({
   bind: Keybind;
   onChange: (next: Keybind) => void;
 }) {
+  const mods = [
+    ["altKey", "Alt"],
+    ["shiftKey", "Shift"],
+    ["ctrlKey", "Ctrl"],
+    ["metaKey", "Meta"],
+  ] as const;
+
   return (
     <div className="mod-group">
-      {(["altKey", "shiftKey", "ctrlKey", "metaKey"] as const).map((mod) => {
-        const label =
-          mod === "altKey"
-            ? "Alt"
-            : mod === "shiftKey"
-            ? "Shift"
-            : mod === "ctrlKey"
-            ? "Ctrl"
-            : "Meta";
+      {mods.map(([mod, label]) => {
         const on = bind[mod];
+
         return (
           <button
             key={mod}
             type="button"
+            aria-pressed={on}
             className={`mod-chip${on ? " mod-chip--on" : ""}`}
             onClick={() => onChange({ ...bind, [mod]: !on })}
           >
@@ -95,8 +105,6 @@ function ModifierEditor({
   );
 }
 
-// records the next keydown into a binding. shows "press keys…" while
-// active, the formatted binding otherwise.
 function KeyRecorder({
   bind,
   onChange,
@@ -108,15 +116,18 @@ function KeyRecorder({
 
   useEffect(() => {
     if (!recording) return;
+
     function onKey(e: KeyboardEvent) {
-      // skip pure-modifier presses; wait for the real key
       if (["Alt", "Shift", "Control", "Meta"].includes(e.key)) return;
+
       e.preventDefault();
       e.stopPropagation();
+
       if (e.key === "Escape") {
         setRecording(false);
         return;
       }
+
       onChange({
         altKey: e.altKey,
         shiftKey: e.shiftKey,
@@ -124,8 +135,10 @@ function KeyRecorder({
         metaKey: e.metaKey,
         key: e.key,
       });
+
       setRecording(false);
     }
+
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [recording, onChange]);
@@ -136,7 +149,7 @@ function KeyRecorder({
       className={`key-recorder${recording ? " key-recorder--active" : ""}`}
       onClick={() => setRecording((r) => !r)}
     >
-      {recording ? "press key combo…" : formatKeybind(bind) || "(unset)"}
+      {recording ? "Press shortcut..." : formatKeybind(bind) || "Unset"}
     </button>
   );
 }
@@ -167,79 +180,79 @@ function OptionsApp() {
   ) {
     setSettings((prev) => ({
       ...prev,
-      keybinds: { ...prev.keybinds, [key]: next },
+      keybinds: {
+        ...prev.keybinds,
+        [key]: next,
+      },
     }));
   }
 
   function resetKeybinds() {
-    setSettings((prev) => ({ ...prev, keybinds: DEFAULT_KEYBINDS }));
+    setSettings((prev) => ({
+      ...prev,
+      keybinds: DEFAULT_KEYBINDS,
+    }));
   }
 
   return (
-    <div className="options-root">
-      <header className="options-header">
-        <h1>ChatMap</h1>
-        <p>minimap settings</p>
-      </header>
+    <main className="options-root">
 
-      <section className="options-section">
-        <h2>general</h2>
+
+      <section className="options-card">
+        <div className="section-title">General</div>
+
         <Toggle
-          label="enabled"
+          label="Enable ChatMap"
           checked={settings.enabled}
           onChange={(v) => update({ enabled: v })}
         />
+
         <Toggle
-          label="reduced motion"
+          label="Reduced motion"
           checked={settings.reducedMotion}
           onChange={(v) => update({ reducedMotion: v })}
         />
       </section>
 
-      <section className="options-section">
-        <h2>markers</h2>
-        <p className="section-hint">
-          one marker per message. images, code, links, and attachments show up
-          as badges inside the hover preview — not as separate ticks.
-        </p>
+      <section className="options-card">
+        <div className="section-title">Markers</div>
+
         <Toggle
-          label="show your messages"
+          label="User messages"
           checked={settings.showUserMessages}
           onChange={(v) => update({ showUserMessages: v })}
         />
+
         <Toggle
-          label="show chatgpt responses"
+          label="ChatGPT responses"
           checked={settings.showAssistantMessages}
           onChange={(v) => update({ showAssistantMessages: v })}
         />
       </section>
 
-      <section className="options-section">
-        <h2>appearance</h2>
+      <section className="options-card">
+        <div className="section-title">Appearance</div>
+
         <Select
-          label="accent color"
+          label="Accent color"
           value={settings.accentColor}
           options={[
-            { value: "gray", label: "gray (default)" },
-            { value: "blue", label: "blue" },
-            { value: "purple", label: "purple" },
-            { value: "green", label: "green" },
-            { value: "orange", label: "orange" },
-            { value: "pink", label: "pink" },
+            { value: "blue", label: "Aqua" },
+            { value: "gray", label: "Gray" },
+            { value: "purple", label: "Purple" },
+            { value: "green", label: "Green" },
+            { value: "orange", label: "Orange" },
+            { value: "pink", label: "Pink" },
           ]}
           onChange={(v) => update({ accentColor: v })}
         />
       </section>
 
-      <section className="options-section">
-        <h2>keybinds</h2>
-        <p className="section-hint">
-          mod-click a marker to edit its color, name, and note. use the
-          next/prev shortcuts to jump between bookmarked messages.
-        </p>
+      <section className="options-card">
+        <div className="section-title">Shortcuts</div>
 
         <div className="kb-row">
-          <div className="kb-row-label">edit bookmark (modifiers + click)</div>
+          <div className="kb-row-label">Edit bookmark</div>
           <ModifierEditor
             bind={settings.keybinds.editBookmark}
             onChange={(next) => updateBind("editBookmark", next)}
@@ -247,7 +260,7 @@ function OptionsApp() {
         </div>
 
         <div className="kb-row">
-          <div className="kb-row-label">next bookmark</div>
+          <div className="kb-row-label">Next bookmark</div>
           <KeyRecorder
             bind={settings.keybinds.nextImportant}
             onChange={(next) => updateBind("nextImportant", next)}
@@ -255,24 +268,25 @@ function OptionsApp() {
         </div>
 
         <div className="kb-row">
-          <div className="kb-row-label">previous bookmark</div>
+          <div className="kb-row-label">Previous bookmark</div>
           <KeyRecorder
             bind={settings.keybinds.prevImportant}
             onChange={(next) => updateBind("prevImportant", next)}
           />
         </div>
 
-        <button className="reset-btn" onClick={resetKeybinds}>
-          reset to defaults
+        <button type="button" className="reset-btn" onClick={resetKeybinds}>
+          Reset shortcuts
         </button>
       </section>
-
-      <div className="options-footer">
-        <span className="footer-hint">changes save automatically</span>
-      </div>
-    </div>
+    </main>
   );
 }
 
-const root = document.getElementById("root")!;
-createRoot(root).render(<OptionsApp />);
+const rootEl = document.getElementById("root");
+
+if (!rootEl) {
+  throw new Error("ChatMap settings root element was not found.");
+}
+
+createRoot(rootEl).render(<OptionsApp />);
