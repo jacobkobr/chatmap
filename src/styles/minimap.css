@@ -38,6 +38,10 @@
   flex-shrink: 0;
   opacity: 0;
   pointer-events: none;
+  /* right-align so the arrows sit above the right-anchored marker column */
+  align-self: flex-end;
+  width: 100%;
+  text-align: right;
   transition: opacity 160ms ease, color 120ms ease;
 }
 
@@ -68,13 +72,14 @@
 }
 
 /* ── marker wrapper ──────────────────────────────────────── */
+/* right-aligned: markers grow leftward from the right edge of the track */
 .marker-wrapper {
   position: absolute;
   left: 0;
   right: 0;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
   height: 0;
 }
 
@@ -97,6 +102,8 @@
   transform-origin: center;
 }
 
+/* hover/active scale from the right edge so growth stays anchored */
+.marker { transform-origin: right center; }
 .marker:hover { transform: scaleY(2) scaleX(1.04); opacity: 0.85; }
 .marker--active { transform: scaleY(1.6); opacity: 1; }
 
@@ -163,9 +170,9 @@
   }
 }
 
-.marker--user      { width: 38%; background: var(--m-user); }
-.marker--assistant { width: 78%; background: var(--m-asst); }
-.marker--unknown   { width: 50%; background: var(--m-asst); opacity: 0.25; }
+.marker--user      { width: 52%; background: var(--m-user); }
+.marker--assistant { width: 92%; background: var(--m-asst); }
+.marker--unknown   { width: 64%; background: var(--m-asst); opacity: 0.25; }
 
 /* active — full brightness, brighter variant */
 .marker--active.marker--user      { opacity: 1; background: var(--m-user-active); }
@@ -220,20 +227,25 @@
   to   { transform: scale(1); opacity: 1; }
 }
 
-/* ── preview card ────────────────────────────────────────── */
-.marker-preview {
+/* ── single moving preview ──────────────────────────────────
+   one preview lives at the rail level and glides between marker
+   positions on hover. text snaps so you can read it instantly;
+   the box itself eases. no overlapping cards, no fade stacking. */
+.rail-preview {
   position: absolute;
   right: calc(100% + 14px);
-  top: 50%;
   transform: translateY(-50%);
   z-index: 1;
   pointer-events: auto;
-  animation: preview-slide-in 130ms ease;
+  transition:
+    top 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 140ms ease;
+  animation: preview-fade-in 140ms ease;
 }
 
-@keyframes preview-slide-in {
-  from { opacity: 0; transform: translateY(-50%) translateX(8px); }
-  to   { opacity: 1; transform: translateY(-50%) translateX(0); }
+@keyframes preview-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 .preview-card {

@@ -3,6 +3,7 @@ import type { ChatMessageRecord, ThreadMapSettings } from "../shared/types";
 import type { ChatSiteAdapter } from "../adapters/types";
 import { useMessageIndex } from "./useMessageIndex";
 import { Marker } from "./Marker";
+import { PreviewCard } from "./PreviewCard";
 import { isMarkerVisible } from "./markerClassifier";
 import { DESKTOP_MIN_WIDTH, HIGHLIGHT_DURATION_MS } from "../shared/constants";
 
@@ -219,10 +220,12 @@ function railHeight(count: number): number {
 export function Minimap({ adapter, settings }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
+  const [hoverIdx, setHoverIdx] = useState(-1);
   const [isDesktop, setIsDesktop] = useState(
     () => window.innerWidth >= DESKTOP_MIN_WIDTH
   );
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { messages, isStreaming, unreadIds, markRead, suppressRefresh } =
     useMessageIndex(adapter);
 
@@ -230,6 +233,11 @@ export function Minimap({ adapter, settings }: Props) {
     () => messages.filter((m) => isMarkerVisible(m, settings)),
     [messages, settings]
   );
+
+  // keep hoverIdx in range when the visible set shrinks
+  useEffect(() => {
+    if (hoverIdx >= visible.length) setHoverIdx(-1);
+  }, [visible.length, hoverIdx]);
 
   // desktop-only: hide minimap on narrow viewports
   useEffect(() => {
@@ -331,6 +339,22 @@ export function Minimap({ adapter, settings }: Props) {
     collapseTimer.current = setTimeout(() => setExpanded(false), 300);
   }
 
+  // marker hover handlers — one preview at rail level, snaps text but
+  // glides between marker positions
+  function handleHoverStart(idx: number) {
+    if (previewCloseTimer.current) clearTimeout(previewCloseTimer.current);
+    setHoverIdx(idx);
+  }
+
+  function handleHoverEnd() {
+    // tiny grace so moving across the gap between markers doesn't flicker
+    previewCloseTimer.current = setTimeout(() => setHoverIdx(-1), 120);
+  }
+
+  function keepPreviewOpen() {
+    if (previewCloseTimer.current) clearTimeout(previewCloseTimer.current);
+  }
+
   function goUp() {
     const prev = activeIdx <= 0 ? visible.length - 1 : activeIdx - 1;
     if (visible[prev]) handleScrollTo(visible[prev]);
@@ -383,7 +407,6 @@ export function Minimap({ adapter, settings }: Props) {
               key={msg.id}
               msg={msg}
               index={globalIdx}
-              total={messages.length}
               topPercent={topPercent}
               settings={settings}
               active={isActive}
@@ -391,9 +414,33 @@ export function Minimap({ adapter, settings }: Props) {
               streaming={isStreamingTick}
               unread={unreadIds.has(msg.id)}
               onScrollTo={handleScrollTo}
+              onHoverStart={handleHoverStart}
+              onHoverEnd={handleHoverEnd}
+              hoverIdx={i}
             />
           );
         })}
+
+        {hoverIdx !== -1 && visible[hoverIdx] && (
+          <div
+            className="rail-preview"
+            style={{
+              top: `${
+                visible.length <= 1
+                  ? 50
+                  : (hoverIdx / (visible.length - 1)) * 92 + 4
+              }%`,
+            }}
+            onMouseEnter={keepPreviewOpen}
+            onMouseLeave={handleHoverEnd}
+          >
+            <PreviewCard
+              msg={visible[hoverIdx]}
+              index={messages.indexOf(visible[hoverIdx])}
+              total={messages.length}
+            />
+          </div>
+        )}
       </div>
 
       <button

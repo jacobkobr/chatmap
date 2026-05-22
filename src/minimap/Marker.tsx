@@ -1,12 +1,9 @@
-import { useState, useRef } from "react";
 import type { ChatMessageRecord, ThreadMapSettings } from "../shared/types";
-import { PreviewCard } from "./PreviewCard";
 import { markerVariant } from "./markerClassifier";
 
 interface Props {
   msg: ChatMessageRecord;
   index: number;
-  total: number;
   topPercent: number;
   settings: ThreadMapSettings;
   active: boolean;
@@ -14,29 +11,24 @@ interface Props {
   streaming: boolean;
   unread: boolean;
   onScrollTo: (msg: ChatMessageRecord) => void;
+  onHoverStart: (idx: number) => void;
+  onHoverEnd: () => void;
+  hoverIdx: number;
 }
 
 export function Marker({
   msg,
   index,
-  total,
   topPercent,
   active,
   streaming,
   unread,
   onScrollTo,
+  onHoverStart,
+  onHoverEnd,
+  hoverIdx,
 }: Props) {
-  const [hovered, setHovered] = useState(false);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const variant = markerVariant(msg);
-
-  function cancelClose() {
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-  }
-
-  function scheduleClose() {
-    closeTimer.current = setTimeout(() => setHovered(false), 260);
-  }
 
   const classes = [
     "marker",
@@ -51,11 +43,8 @@ export function Marker({
     <div
       className="marker-wrapper"
       style={{ top: `${topPercent}%` }}
-      onMouseEnter={() => {
-        cancelClose();
-        setHovered(true);
-      }}
-      onMouseLeave={scheduleClose}
+      onMouseEnter={() => onHoverStart(hoverIdx)}
+      onMouseLeave={onHoverEnd}
     >
       <button
         className={classes}
@@ -72,16 +61,6 @@ export function Marker({
           <span className="marker-unread-dot" aria-hidden="true" />
         ) : null}
       </button>
-
-      {hovered && (
-        <div
-          className="marker-preview"
-          onMouseEnter={cancelClose}
-          onMouseLeave={scheduleClose}
-        >
-          <PreviewCard msg={msg} index={index} total={total} />
-        </div>
-      )}
     </div>
   );
 }
