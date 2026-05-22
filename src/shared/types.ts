@@ -12,7 +12,9 @@ export type ChatMessageFeature =
 export interface ChatMessageRecord {
   id: string;
   role: ChatMessageRole;
-  element: HTMLElement;
+  // optional because cache-seeded records exist before the dom is hydrated.
+  // resolveTarget falls back to data-chatmap-id / domAnchor lookups when undefined.
+  element?: HTMLElement;
   textPreview: string;
   fullTextLength: number;
   features: ChatMessageFeature[];
@@ -21,6 +23,30 @@ export interface ChatMessageRecord {
   // adapter-supplied anchor used to re-resolve the dom node after virtualization
   // (chatgpt: conversation-turn-N data-testid). optional so other adapters can omit.
   domAnchor?: string;
+  // turn order (chatgpt's conversation-turn-N). used for sorting and for
+  // estimating scroll position when navigating to a virtualized marker.
+  order?: number;
+}
+
+// minimal subset of ChatMessageRecord that survives serialization to
+// chrome.storage.local. element, top, height are dom-bound so we drop them.
+export interface CachedMarker {
+  id: string;
+  role: ChatMessageRole;
+  textPreview: string;
+  fullTextLength: number;
+  features: ChatMessageFeature[];
+  domAnchor: string;
+  order: number;
+}
+
+export interface ConvCache {
+  markers: CachedMarker[];
+  lastUpdated: number;
+  // true once a full scan completed for this conversation
+  fullyScanned: boolean;
+  // true when the user dismissed the scan offer for this conversation
+  offerDismissed: boolean;
 }
 
 export type AccentColor = "gray" | "blue" | "purple" | "green" | "orange" | "pink";
