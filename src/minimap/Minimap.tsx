@@ -98,7 +98,6 @@ const FOLLOWUP_MS = 1500;
 const STABLE_FRAMES = 12;       // ~200ms at 60fps before we declare arrival
 const CORRECTION_ALPHA = 0.28;  // fraction of remaining gap closed per frame
 const ARRIVAL_TOLERANCE = 1.5;
-const CANCEL_TOLERANCE = 3;     // px diff that distinguishes user scroll from our writes
 
 function tweenContainerToMessage(
   container: HTMLElement,
@@ -130,27 +129,53 @@ function tweenContainerToMessage(
     return cachedTarget;
   };
 
-  // distinguish a browser-driven scroll shift (chatgpt lazy-loading older
-  // turns above the viewport, which forces scrollTop to grow so the visible
-  // content stays put) from a genuine user wheel/touch. when scrollHeight
-  // grew this frame, we re-baseline startScrollTop and lastWritten so the
-  // tween formula keeps aiming at the same visual target instead of giving
-  // up and leaving the user halfway there.
-  const onUserScroll = () => {
+  // detect lazy-load reflow (chatgpt mounting older turns above, or
+  // unmounting turns below, etc) and re-baseline startScrollTop so the
+  // tween keeps aiming at the same visual target. previous code used a
+  // scrollTop-diff heuristic to also detect user scrolls, but virtual
+  // mount/unmount can shift scrollTop without changing scrollHeight, which
+  // tripped the heuristic and cancelled the tween mid-flight. user-scroll
+  // detection is now driven by actual input events (below) — much more
+  // reliable.
+  const onScroll = () => {
     const sh = container.scrollHeight;
     if (sh !== lastScrollHeight) {
       const shift = container.scrollTop - lastWritten;
       startScrollTop += shift;
       lastWritten = container.scrollTop;
       lastScrollHeight = sh;
-      return;
     }
-    if (Math.abs(container.scrollTop - lastWritten) > CANCEL_TOLERANCE) {
+  };
+  container.addEventListener("scroll", onScroll, { passive: true });
+
+  // cancel on real user gestures: wheel, touch, navigation keys. these are
+  // ground truth — no false positives from chatgpt's virtualization, which
+  // is what made the prior diff-based heuristic flaky on the first click.
+  const onUserInput = () => { cancelled = true; };
+  const onKey = (e: KeyboardEvent) => {
+    if (
+      e.key === "ArrowUp" || e.key === "ArrowDown" ||
+      e.key === "PageUp" || e.key === "PageDown" ||
+      e.key === "Home"   || e.key === "End"      ||
+      e.key === " "
+    ) {
       cancelled = true;
     }
   };
-  container.addEventListener("scroll", onUserScroll, { passive: true });
-  const cleanup = () => container.removeEventListener("scroll", onUserScroll);
+  container.addEventListener("wheel", onUserInput, { passive: true });
+  container.addEventListener("touchstart", onUserInput, { passive: true });
+  window.addEventListener("wheel", onUserInput, { passive: true });
+  window.addEventListener("touchstart", onUserInput, { passive: true });
+  document.addEventListener("keydown", onKey);
+
+  const cleanup = () => {
+    container.removeEventListener("scroll", onScroll);
+    container.removeEventListener("wheel", onUserInput);
+    container.removeEventListener("touchstart", onUserInput);
+    window.removeEventListener("wheel", onUserInput);
+    window.removeEventListener("touchstart", onUserInput);
+    document.removeEventListener("keydown", onKey);
+  };
 
   const ease = (t: number) => 1 - Math.pow(1 - t, 3);
 
@@ -554,13 +579,14 @@ export function Minimap({ adapter, settings }: Props) {
   }, []);
 
   // active tick tracks the message the user is actually looking at.
-  // for each visible message, compute how much of it is on screen
-  // (rect clamped to the viewport). the one with the greatest visible
-  // extent wins — a long assistant turn dominating the viewport, a
-  // short msg fully in view, etc. ties (within 1px) break toward the
-  // lower message, which naturally lands on the bottom message when
-  // several short ones all sit at the end of the conversation. no
-  // bandaid edge cases — the same rule applies everywhere.
+  // for each visible message we compute visible extent below the sticky
+  // header, then normalize by the message's own height. a short message
+  // that's 100% in view beats a long message that's only 40% in view —
+  // which fixes the "user msg sandwiched between two long assistant turns
+  // is never highlighted" case (raw extent let the long turns always win).
+  // tiebreak: distance from the visible-portion center to a reading line
+  // just below TOP_GAP, closer wins. just-clicked messages still get a
+  // dominant boost so the highlight snaps immediately after navigation.
   useEffect(() => {
     if (visible.length === 0) {
       setActiveIdx(-1);
@@ -571,23 +597,16 @@ export function Minimap({ adapter, settings }: Props) {
     const container = firstLive ? findScrollContainer(firstLive) : null;
     const scrollTarget: HTMLElement | Window = container ?? window;
 
-    // score = visible extent + a large boost if the message's top edge
-    // is sitting at the scroll-target reading position (TOP_GAP). that
-    // way a message just scrolled to via click or keybind wins the
-    // highlight even if the assistant turn right below it covers more
-    // viewport area. for normal mid-conversation scrolling, no message
-    // happens to sit exactly at TOP_GAP, so visible extent decides
-    // unchanged.
     const READING_BOOST_WINDOW = 14; // px tolerance around TOP_GAP
-    const READING_BOOST = 1e6;       // wins any reasonable extent comparison
+    const READING_BOOST = 1e9;       // dominates all natural scores
 
     let raf = 0;
     const compute = () => {
       raf = 0;
       const vh = window.innerHeight;
+      const readingLine = TOP_GAP + Math.min(120, vh * 0.15);
       let active = -1;
-      let bestScore = -1;
-      let bestBottom = -Infinity;
+      let bestScore = -Infinity;
 
       for (let i = 0; i < visible.length; i++) {
         const el = resolveTarget(visible[i]);
@@ -596,25 +615,31 @@ export function Minimap({ adapter, settings }: Props) {
         if (r.bottom > 0 && r.top < vh) markRead(visible[i].id);
 
         // clamp visTop to TOP_GAP: chatgpt's sticky top header (~110px) hides
-        // anything above it, so messages partially behind the header shouldn't
-        // count toward visible extent — otherwise the active highlight locks
-        // to a marker the user can't actually see.
+        // anything above it. visible portion below the header is what counts.
         const visTop = Math.max(TOP_GAP, r.top);
         const visBot = Math.min(vh, r.bottom);
         const extent = visBot - visTop;
         if (extent <= 0) continue;
 
+        // floor msg height so a one-line user msg (~28px) doesn't dominate
+        // by sheer ratio when only marginally in view.
+        const msgHeight = Math.max(40, r.height);
+        const ratio = Math.min(1, extent / msgHeight);
+
+        // tiebreaker: how close the visible-portion center is to the reading
+        // line. small distances are barely a thumb on the scale; the ratio
+        // does the heavy lifting.
+        const visCenter = (visTop + visBot) / 2;
+        const distPenalty = Math.abs(visCenter - readingLine) * 0.001;
+
         const atReadingLine =
           r.top > TOP_GAP - READING_BOOST_WINDOW &&
           r.top < TOP_GAP + READING_BOOST_WINDOW;
-        const score = extent + (atReadingLine ? READING_BOOST : 0);
+        const score =
+          (atReadingLine ? READING_BOOST : 0) + ratio - distPenalty;
 
-        const better =
-          score > bestScore + 1 ||
-          (Math.abs(score - bestScore) <= 1 && visBot > bestBottom);
-        if (better) {
+        if (score > bestScore) {
           bestScore = score;
-          bestBottom = visBot;
           active = i;
         }
       }
@@ -923,6 +948,7 @@ export function Minimap({ adapter, settings }: Props) {
               index={messages.indexOf(visible[hoverIdx])}
               total={messages.length}
               bookmark={bookmarkFor(visible[hoverIdx])}
+              onDeleteBookmark={() => handleDeleteBookmark(visible[hoverIdx])}
             />
           </div>
         )}

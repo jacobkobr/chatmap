@@ -413,6 +413,34 @@
   border-color: rgba(255, 255, 255, 0.14);
 }
 
+/* subtle inline remove — only present on bookmarked previews so it
+   doesn't add noise to the hover card otherwise. dimmed by default,
+   fully visible on hover so accidental clicks are unlikely. */
+.preview-bookmark-remove {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 3px 8px;
+  background: transparent;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  border-radius: 6px;
+  color: #f87171;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  opacity: 0.75;
+  transition:
+    opacity 120ms ease,
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.preview-bookmark-remove:hover {
+  opacity: 1;
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.55);
+}
+
 @media (prefers-color-scheme: light) {
   .preview-bookmark-name { color: #0f172a; }
   .preview-bookmark-note {
