@@ -1,15 +1,28 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import type { ChatMessageRecord, ThreadMapSettings } from "../shared/types";
+import type {
+  ChatMessageRecord,
+  MessageBookmark,
+  ChatMapSettings,
+} from "../shared/types";
 import type { ChatSiteAdapter } from "../adapters/types";
 import { useMessageIndex } from "./useMessageIndex";
 import { Marker } from "./Marker";
 import { PreviewCard } from "./PreviewCard";
+import { BookmarkEditor } from "./BookmarkEditor";
+import { useBookmarks } from "./useBookmarks";
 import { isMarkerVisible } from "./markerClassifier";
+import {
+  bookmarkKey,
+  getConversationId,
+  setBookmark,
+  deleteBookmark,
+} from "../storage/bookmarks";
+import { matchesKeybind } from "../shared/keybinds";
 import { DESKTOP_MIN_WIDTH, HIGHLIGHT_DURATION_MS } from "../shared/constants";
 
 interface Props {
   adapter: ChatSiteAdapter;
-  settings: ThreadMapSettings;
+  settings: ChatMapSettings;
 }
 
 const TOP_GAP = 110; // px gap from viewport top after scroll
@@ -172,14 +185,14 @@ function tweenContainerToMessage(
 
 // resolve the freshest live dom node for a message. tries (in order):
 //   1. the stored element, if still attached
-//   2. our stamped data-threadmap-id (cheap, may be stripped by react re-renders)
+//   2. our stamped data-chatmap-id (cheap, may be stripped by react re-renders)
 //   3. the adapter-supplied dom anchor (chatgpt's conversation-turn-N data-testid)
 // returns null if nothing resolves — caller should bail rather than scroll wrong.
 function resolveTarget(msg: ChatMessageRecord): HTMLElement | null {
   if (document.contains(msg.element)) return msg.element;
 
   const byId = document.querySelector<HTMLElement>(
-    `[data-threadmap-id="${msg.id}"]`
+    `[data-chatmap-id="${msg.id}"]`
   );
   if (byId) return byId;
 
@@ -221,23 +234,43 @@ export function Minimap({ adapter, settings }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
   const [hoverIdx, setHoverIdx] = useState(-1);
+  const [editorIdx, setEditorIdx] = useState(-1);
   const [isDesktop, setIsDesktop] = useState(
     () => window.innerWidth >= DESKTOP_MIN_WIDTH
   );
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // last bookmark idx visited via keybind nav. lets us advance/retreat in
+  // rail order even when the visible-extent active tracker has drifted to
+  // a neighboring message (e.g. a long assistant turn right after a short
+  // user turn). cleared on regular marker click so manual navigation
+  // resets the anchor.
+  const lastNavIdxRef = useRef<number | null>(null);
   const { messages, isStreaming, unreadIds, markRead, suppressRefresh } =
     useMessageIndex(adapter);
+  const bookmarks = useBookmarks();
+  const convId = useMemo(() => getConversationId(), [messages.length]);
 
   const visible = useMemo(
     () => messages.filter((m) => isMarkerVisible(m, settings)),
     [messages, settings]
   );
 
-  // keep hoverIdx in range when the visible set shrinks
+  // resolve a bookmark for a message (or undefined). cheap to call from
+  // the render loop since the lookup is O(1).
+  const bookmarkFor = useCallback(
+    (msg: ChatMessageRecord): MessageBookmark | undefined => {
+      const k = bookmarkKey(convId, msg.domAnchor);
+      return k ? bookmarks[k] : undefined;
+    },
+    [bookmarks, convId]
+  );
+
+  // keep transient indices in range when the visible set shrinks
   useEffect(() => {
     if (hoverIdx >= visible.length) setHoverIdx(-1);
-  }, [visible.length, hoverIdx]);
+    if (editorIdx >= visible.length) setEditorIdx(-1);
+  }, [visible.length, hoverIdx, editorIdx]);
 
   // desktop-only: hide minimap on narrow viewports
   useEffect(() => {
@@ -246,13 +279,14 @@ export function Minimap({ adapter, settings }: Props) {
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  // active tick tracks the message the user is actually reading.
-  // intersection observer was unreliable here — a long assistant turn can
-  // stay "intersecting" the reading zone for the entire scroll past it,
-  // so the active marker would stick to a turn the user has already left.
-  // instead we recompute on every scroll frame: active = last message whose
-  // top edge is at or above the reading line (about 30% from viewport top).
-  // also marks anything currently on-screen as read.
+  // active tick tracks the message the user is actually looking at.
+  // for each visible message, compute how much of it is on screen
+  // (rect clamped to the viewport). the one with the greatest visible
+  // extent wins — a long assistant turn dominating the viewport, a
+  // short msg fully in view, etc. ties (within 1px) break toward the
+  // lower message, which naturally lands on the bottom message when
+  // several short ones all sit at the end of the conversation. no
+  // bandaid edge cases — the same rule applies everywhere.
   useEffect(() => {
     if (visible.length === 0) {
       setActiveIdx(-1);
@@ -263,34 +297,48 @@ export function Minimap({ adapter, settings }: Props) {
     const container = firstLive ? findScrollContainer(firstLive) : null;
     const scrollTarget: HTMLElement | Window = container ?? window;
 
+    // score = visible extent + a large boost if the message's top edge
+    // is sitting at the scroll-target reading position (TOP_GAP). that
+    // way a message just scrolled to via click or keybind wins the
+    // highlight even if the assistant turn right below it covers more
+    // viewport area. for normal mid-conversation scrolling, no message
+    // happens to sit exactly at TOP_GAP, so visible extent decides
+    // unchanged.
+    const READING_BOOST_WINDOW = 14; // px tolerance around TOP_GAP
+    const READING_BOOST = 1e6;       // wins any reasonable extent comparison
+
     let raf = 0;
     const compute = () => {
       raf = 0;
       const vh = window.innerHeight;
-      const readingLine = vh * 0.30;
       let active = -1;
+      let bestScore = -1;
+      let bestBottom = -Infinity;
+
       for (let i = 0; i < visible.length; i++) {
         const el = resolveTarget(visible[i]);
         if (!el || !document.contains(el)) continue;
         const r = el.getBoundingClientRect();
         if (r.bottom > 0 && r.top < vh) markRead(visible[i].id);
-        if (r.top <= readingLine) active = i;
-      }
 
-      // scroll-edge overrides — when the conversation is scrolled all the
-      // way to the bottom, the user is reading the latest message even if
-      // a short cluster of recent messages all sit above the reading line.
-      // (without this, the reading-line walk would pick the topmost of the
-      // cluster instead of the most recent.) likewise for the very top.
-      if (visible.length > 0) {
-        const sTop = container ? container.scrollTop : window.scrollY;
-        const sHeight = container
-          ? container.scrollHeight
-          : document.documentElement.scrollHeight;
-        const cHeight = container ? container.clientHeight : vh;
-        const remaining = sHeight - sTop - cHeight;
-        if (remaining < 24) active = visible.length - 1;
-        else if (sTop < 24) active = 0;
+        const visTop = Math.max(0, r.top);
+        const visBot = Math.min(vh, r.bottom);
+        const extent = visBot - visTop;
+        if (extent <= 0) continue;
+
+        const atReadingLine =
+          r.top > TOP_GAP - READING_BOOST_WINDOW &&
+          r.top < TOP_GAP + READING_BOOST_WINDOW;
+        const score = extent + (atReadingLine ? READING_BOOST : 0);
+
+        const better =
+          score > bestScore + 1 ||
+          (Math.abs(score - bestScore) <= 1 && visBot > bestBottom);
+        if (better) {
+          bestScore = score;
+          bestBottom = visBot;
+          active = i;
+        }
       }
 
       setActiveIdx(active);
@@ -310,23 +358,136 @@ export function Minimap({ adapter, settings }: Props) {
     };
   }, [visible, markRead]);
 
-  // scroll to a message — suppress observer during chatgpt's lazy-render window.
-  // resolve the live dom node here too so the highlight lands on the same
-  // element we're actually scrolling to.
-  const handleScrollTo = useCallback(
+  // raw scroll + highlight without any nav-state side effects. used by
+  // both the regular marker click path and the keybind jump path.
+  const performNavigate = useCallback(
     (msg: ChatMessageRecord) => {
       suppressRefresh(900);
       const target = resolveTarget(msg);
       if (!target) return;
       scrollToMessage(msg, settings.reducedMotion);
-      target.classList.add("threadmap-highlight");
+      target.classList.add("chatmap-highlight");
       setTimeout(
-        () => target.classList.remove("threadmap-highlight"),
+        () => target.classList.remove("chatmap-highlight"),
         HIGHLIGHT_DURATION_MS
       );
     },
     [suppressRefresh, settings.reducedMotion]
   );
+
+  // marker click — same scroll but resets the keybind-nav anchor so the
+  // next w/s starts from wherever the user actually clicked.
+  const handleScrollTo = useCallback(
+    (msg: ChatMessageRecord) => {
+      lastNavIdxRef.current = null;
+      performNavigate(msg);
+    },
+    [performNavigate]
+  );
+
+  // open the bookmark editor for a marker. invoked from Marker on
+  // modifier-click (matched against settings.keybinds.editBookmark).
+  const handleEditBookmark = useCallback((idx: number) => {
+    setHoverIdx(-1);
+    setEditorIdx(idx);
+  }, []);
+
+  // persist bookmark changes. drops the bookmark entirely if no fields
+  // (color/name/note) were provided — empty bookmark = remove.
+  const handleSaveBookmark = useCallback(
+    async (msg: ChatMessageRecord, patch: MessageBookmark) => {
+      const k = bookmarkKey(convId, msg.domAnchor);
+      if (!k) {
+        setEditorIdx(-1);
+        return;
+      }
+      if (!patch.color && !patch.name && !patch.note) {
+        await deleteBookmark(k);
+      } else {
+        await setBookmark(k, patch);
+      }
+      setEditorIdx(-1);
+    },
+    [convId]
+  );
+
+  const handleDeleteBookmark = useCallback(
+    async (msg: ChatMessageRecord) => {
+      const k = bookmarkKey(convId, msg.domAnchor);
+      if (k) await deleteBookmark(k);
+      setEditorIdx(-1);
+    },
+    [convId]
+  );
+
+  // alt+shift+w / alt+shift+s (or whatever the user configured) — jump
+  // to the next or previous bookmarked message in rail order.
+  //
+  // anchor preference:
+  //   1. lastNavIdxRef — the last bookmark we keybind-nav'd to. lets
+  //      W/W/W cycle in order even when the visible-extent active tracker
+  //      drifts to the message AFTER a short bookmark (which would
+  //      otherwise cause a strict `>` lookup to skip the next bookmark
+  //      because activeIdx already equals it).
+  //   2. activeIdx — fresh start, no keybind yet.
+  useEffect(() => {
+    const { nextImportant, prevImportant } = settings.keybinds;
+
+    const sorted = visible
+      .map((msg, i) => (bookmarkFor(msg) ? i : -1))
+      .filter((i) => i !== -1);
+
+    if (sorted.length === 0) return;
+
+    function jump(dir: 1 | -1) {
+      // slot = position in `sorted` of the bookmark the user is "at"
+      let slot: number;
+      const lastIdx = lastNavIdxRef.current;
+      if (lastIdx !== null && sorted.includes(lastIdx)) {
+        slot = sorted.indexOf(lastIdx);
+      } else {
+        const anchor = activeIdx >= 0 ? activeIdx : -1;
+        slot = -1;
+        for (let i = 0; i < sorted.length; i++) {
+          if (sorted[i] <= anchor) slot = i;
+          else break;
+        }
+      }
+
+      let nextSlot: number;
+      if (dir > 0) {
+        nextSlot = slot + 1 >= sorted.length ? 0 : slot + 1;
+      } else {
+        nextSlot = slot <= 0 ? sorted.length - 1 : slot - 1;
+      }
+
+      const targetIdx = sorted[nextSlot];
+      lastNavIdxRef.current = targetIdx;
+      if (visible[targetIdx]) performNavigate(visible[targetIdx]);
+    }
+
+    function onKey(e: KeyboardEvent) {
+      // ignore when typing in an input/textarea — don't steal user keystrokes
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        (e.target as HTMLElement | null)?.isContentEditable
+      ) {
+        return;
+      }
+      if (matchesKeybind(e, nextImportant)) {
+        e.preventDefault();
+        jump(1);
+      } else if (matchesKeybind(e, prevImportant)) {
+        e.preventDefault();
+        jump(-1);
+      }
+    }
+
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [visible, activeIdx, bookmarkFor, settings.keybinds, performNavigate]);
 
   if (!isDesktop) return null;
 
@@ -413,7 +574,9 @@ export function Minimap({ adapter, settings }: Props) {
               expanded={expanded}
               streaming={isStreamingTick}
               unread={unreadIds.has(msg.id)}
+              bookmark={bookmarkFor(msg)}
               onScrollTo={handleScrollTo}
+              onEditBookmark={handleEditBookmark}
               onHoverStart={handleHoverStart}
               onHoverEnd={handleHoverEnd}
               hoverIdx={i}
@@ -421,7 +584,7 @@ export function Minimap({ adapter, settings }: Props) {
           );
         })}
 
-        {hoverIdx !== -1 && visible[hoverIdx] && (
+        {hoverIdx !== -1 && visible[hoverIdx] && editorIdx === -1 && (
           <div
             className="rail-preview"
             style={{
@@ -438,8 +601,24 @@ export function Minimap({ adapter, settings }: Props) {
               msg={visible[hoverIdx]}
               index={messages.indexOf(visible[hoverIdx])}
               total={messages.length}
+              bookmark={bookmarkFor(visible[hoverIdx])}
             />
           </div>
+        )}
+
+        {editorIdx !== -1 && visible[editorIdx] && (
+          <BookmarkEditor
+            msg={visible[editorIdx]}
+            existing={bookmarkFor(visible[editorIdx])}
+            topPercent={
+              visible.length <= 1
+                ? 50
+                : (editorIdx / (visible.length - 1)) * 92 + 4
+            }
+            onSave={(patch) => handleSaveBookmark(visible[editorIdx], patch)}
+            onDelete={() => handleDeleteBookmark(visible[editorIdx])}
+            onClose={() => setEditorIdx(-1)}
+          />
         )}
       </div>
 

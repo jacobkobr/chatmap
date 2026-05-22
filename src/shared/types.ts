@@ -25,19 +25,41 @@ export interface ChatMessageRecord {
 
 export type AccentColor = "gray" | "blue" | "purple" | "green" | "orange" | "pink";
 
-export interface ThreadMapSettings {
+// a configurable shortcut. clicks use the modifier set only (key omitted).
+// keyboard shortcuts require a single character key. modifiers default to
+// false so partial defaults expand cleanly.
+export interface Keybind {
+  altKey: boolean;
+  shiftKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  key?: string;
+}
+
+export interface ChatMapKeybinds {
+  editBookmark: Keybind;
+  nextImportant: Keybind;
+  prevImportant: Keybind;
+}
+
+export interface ChatMapSettings {
   enabled: boolean;
   showUserMessages: boolean;
   showAssistantMessages: boolean;
   reducedMotion: boolean;
   accentColor: AccentColor;
+  keybinds: ChatMapKeybinds;
 }
 
-export interface ThreadMapBookmark {
-  id: string;
-  url: string;
+// per-message annotation. keyed by `${convId}|${domAnchor}` in storage so
+// the bookmark survives reloads of the same conversation. fields are all
+// optional so an empty bookmark (e.g. color-only) is valid.
+export interface MessageBookmark {
+  color?: string;
+  name?: string;
+  note?: string;
   createdAt: number;
-  messagePreview: string;
-  role: ChatMessageRole;
-  features: ChatMessageFeature[];
 }
+
+export type BookmarkMap = Record<string, MessageBookmark>;
+

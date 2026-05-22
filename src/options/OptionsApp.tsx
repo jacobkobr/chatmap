@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { loadSettings, saveSettings } from "../storage/settings";
-import type { ThreadMapSettings } from "../shared/types";
-import { DEFAULT_SETTINGS } from "../shared/constants";
+import type { Keybind, ChatMapKeybinds, ChatMapSettings } from "../shared/types";
+import { DEFAULT_KEYBINDS, DEFAULT_SETTINGS } from "../shared/constants";
+import { formatKeybind } from "../shared/keybinds";
 import "./options.css";
 
 function Toggle({
@@ -58,10 +59,90 @@ function Select<T extends string>({
   );
 }
 
+// modifier checkbox group. used for click-action bindings where no key is
+// needed (just a modifier combo paired with a mouse click).
+function ModifierEditor({
+  bind,
+  onChange,
+}: {
+  bind: Keybind;
+  onChange: (next: Keybind) => void;
+}) {
+  return (
+    <div className="mod-group">
+      {(["altKey", "shiftKey", "ctrlKey", "metaKey"] as const).map((mod) => {
+        const label =
+          mod === "altKey"
+            ? "Alt"
+            : mod === "shiftKey"
+            ? "Shift"
+            : mod === "ctrlKey"
+            ? "Ctrl"
+            : "Meta";
+        const on = bind[mod];
+        return (
+          <button
+            key={mod}
+            type="button"
+            className={`mod-chip${on ? " mod-chip--on" : ""}`}
+            onClick={() => onChange({ ...bind, [mod]: !on })}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// records the next keydown into a binding. shows "press keys…" while
+// active, the formatted binding otherwise.
+function KeyRecorder({
+  bind,
+  onChange,
+}: {
+  bind: Keybind;
+  onChange: (next: Keybind) => void;
+}) {
+  const [recording, setRecording] = useState(false);
+
+  useEffect(() => {
+    if (!recording) return;
+    function onKey(e: KeyboardEvent) {
+      // skip pure-modifier presses; wait for the real key
+      if (["Alt", "Shift", "Control", "Meta"].includes(e.key)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === "Escape") {
+        setRecording(false);
+        return;
+      }
+      onChange({
+        altKey: e.altKey,
+        shiftKey: e.shiftKey,
+        ctrlKey: e.ctrlKey,
+        metaKey: e.metaKey,
+        key: e.key,
+      });
+      setRecording(false);
+    }
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [recording, onChange]);
+
+  return (
+    <button
+      type="button"
+      className={`key-recorder${recording ? " key-recorder--active" : ""}`}
+      onClick={() => setRecording((r) => !r)}
+    >
+      {recording ? "press key combo…" : formatKeybind(bind) || "(unset)"}
+    </button>
+  );
+}
+
 function OptionsApp() {
-  const [settings, setSettings] = useState<ThreadMapSettings>(DEFAULT_SETTINGS);
-  // gate auto-save on initial load so we don't overwrite stored settings
-  // with defaults on the first render
+  const [settings, setSettings] = useState<ChatMapSettings>(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -71,22 +152,33 @@ function OptionsApp() {
     });
   }, []);
 
-  // auto-save on every change — popup closes on outside click, so a
-  // separate save button is friction. content script picks up changes
-  // immediately via the storage.onChanged listener.
   useEffect(() => {
     if (!loaded) return;
     saveSettings(settings);
   }, [settings, loaded]);
 
-  function update(patch: Partial<ThreadMapSettings>) {
+  function update(patch: Partial<ChatMapSettings>) {
     setSettings((prev) => ({ ...prev, ...patch }));
+  }
+
+  function updateBind<K extends keyof ChatMapKeybinds>(
+    key: K,
+    next: Keybind
+  ) {
+    setSettings((prev) => ({
+      ...prev,
+      keybinds: { ...prev.keybinds, [key]: next },
+    }));
+  }
+
+  function resetKeybinds() {
+    setSettings((prev) => ({ ...prev, keybinds: DEFAULT_KEYBINDS }));
   }
 
   return (
     <div className="options-root">
       <header className="options-header">
-        <h1>ThreadMap</h1>
+        <h1>ChatMap</h1>
         <p>minimap settings</p>
       </header>
 
@@ -137,6 +229,42 @@ function OptionsApp() {
           ]}
           onChange={(v) => update({ accentColor: v })}
         />
+      </section>
+
+      <section className="options-section">
+        <h2>keybinds</h2>
+        <p className="section-hint">
+          mod-click a marker to edit its color, name, and note. use the
+          next/prev shortcuts to jump between bookmarked messages.
+        </p>
+
+        <div className="kb-row">
+          <div className="kb-row-label">edit bookmark (modifiers + click)</div>
+          <ModifierEditor
+            bind={settings.keybinds.editBookmark}
+            onChange={(next) => updateBind("editBookmark", next)}
+          />
+        </div>
+
+        <div className="kb-row">
+          <div className="kb-row-label">next bookmark</div>
+          <KeyRecorder
+            bind={settings.keybinds.nextImportant}
+            onChange={(next) => updateBind("nextImportant", next)}
+          />
+        </div>
+
+        <div className="kb-row">
+          <div className="kb-row-label">previous bookmark</div>
+          <KeyRecorder
+            bind={settings.keybinds.prevImportant}
+            onChange={(next) => updateBind("prevImportant", next)}
+          />
+        </div>
+
+        <button className="reset-btn" onClick={resetKeybinds}>
+          reset to defaults
+        </button>
       </section>
 
       <div className="options-footer">

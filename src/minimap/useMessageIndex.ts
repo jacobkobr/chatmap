@@ -15,16 +15,16 @@ function buildRecords(
     const text = adapter.getMessageText(el);
 
     // stable id per element — stamped once, survives re-renders
-    let id = el.dataset.threadmapId;
+    let id = el.dataset.chatmapId;
     if (!id) {
       id = generateId(`msg-${i}`);
-      el.dataset.threadmapId = id;
+      el.dataset.chatmapId = id;
     }
 
     // sort key — turn number from data-testid, or fallback to discovery order
-    if (!el.dataset.threadmapOrder) {
+    if (!el.dataset.chatmapOrder) {
       const m = el.getAttribute("data-testid")?.match(/(\d+)$/);
-      el.dataset.threadmapOrder = m ? m[1] : String(Date.now() + i);
+      el.dataset.chatmapOrder = m ? m[1] : String(Date.now() + i);
     }
 
     // canonical dom anchor — survives react re-renders that drop our stamped
@@ -136,7 +136,7 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
         const existingId = anchorToExistingId.get(fresh.domAnchor);
         if (existingId && existingId !== fresh.id) {
           // re-stamp the live element with the original id so future scans match
-          fresh.element.dataset.threadmapId = existingId;
+          fresh.element.dataset.chatmapId = existingId;
           accumulatedRef.current.delete(existingId);
           fresh.id = existingId;
         }
@@ -148,8 +148,8 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
 
     // sort by turn order so history is always oldest-first
     const sorted = Array.from(accumulatedRef.current.values()).sort((a, b) => {
-      const ao = parseInt(a.element.dataset.threadmapOrder ?? "999999");
-      const bo = parseInt(b.element.dataset.threadmapOrder ?? "999999");
+      const ao = parseInt(a.element.dataset.chatmapOrder ?? "999999");
+      const bo = parseInt(b.element.dataset.chatmapOrder ?? "999999");
       return ao - bo;
     });
 

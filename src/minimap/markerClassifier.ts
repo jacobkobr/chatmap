@@ -1,10 +1,10 @@
-import type { ChatMessageRecord, ThreadMapSettings } from "../shared/types";
+import type { ChatMessageRecord, ChatMapSettings } from "../shared/types";
 import { MIN_RESPONSE_LENGTH } from "../shared/constants";
 
 // determines whether a message should render a marker given current settings
 export function isMarkerVisible(
   msg: ChatMessageRecord,
-  settings: ThreadMapSettings
+  settings: ChatMapSettings
 ): boolean {
   // unknown role = tool call, system message, or unresolvable — never show
   if (msg.role === "unknown") return false;

@@ -9,17 +9,17 @@ export function injectHighlightStyle(): void {
 
   // we use a hard-coded string so no remote css is ever fetched
   const style = document.createElement("style");
-  style.dataset.threadmap = "highlight";
-  style.textContent = `.threadmap-highlight{outline:2px solid rgba(180,180,180,.45)!important;outline-offset:6px!important;border-radius:6px!important;transition:outline .4s ease!important;}`;
+  style.dataset.chatmap = "highlight";
+  style.textContent = `.chatmap-highlight{outline:2px solid rgba(180,180,180,.45)!important;outline-offset:6px!important;border-radius:6px!important;transition:outline .4s ease!important;}`;
   document.head.appendChild(style);
 }
 
 export function teardown(): void {
   removeShadowHost();
   // remove highlight style
-  document.querySelector("style[data-threadmap='highlight']")?.remove();
+  document.querySelector("style[data-chatmap='highlight']")?.remove();
   // clean up data attributes we stamped on message elements
-  document.querySelectorAll<HTMLElement>("[data-threadmap-id]").forEach((el) => {
-    delete el.dataset.threadmapId;
+  document.querySelectorAll<HTMLElement>("[data-chatmap-id]").forEach((el) => {
+    delete el.dataset.chatmapId;
   });
 }

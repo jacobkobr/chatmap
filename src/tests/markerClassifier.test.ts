@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { markerVariant, featureLabels, isMarkerVisible } from "../minimap/markerClassifier";
-import type { ChatMessageRecord, ThreadMapSettings } from "../shared/types";
+import type { ChatMessageRecord, ChatMapSettings } from "../shared/types";
 import { DEFAULT_SETTINGS } from "../shared/constants";
 
 function makeMsg(overrides: Partial<ChatMessageRecord>): ChatMessageRecord {
@@ -54,7 +54,7 @@ describe("featureLabels", () => {
 });
 
 describe("isMarkerVisible", () => {
-  const settings: ThreadMapSettings = { ...DEFAULT_SETTINGS };
+  const settings: ChatMapSettings = { ...DEFAULT_SETTINGS };
 
   it("hides user messages when showUserMessages is false", () => {
     const s = { ...settings, showUserMessages: false };

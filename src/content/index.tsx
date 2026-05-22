@@ -6,7 +6,7 @@ import { injectHighlightStyle, teardown } from "./cleanup";
 import { watchNavigation } from "./navigation";
 import { loadSettings, onSettingsChanged } from "../storage/settings";
 import { Minimap } from "../minimap/Minimap";
-import type { ThreadMapSettings } from "../shared/types";
+import type { ChatMapSettings } from "../shared/types";
 import { MINIMAP_HOST_ID, DEFAULT_SETTINGS } from "../shared/constants";
 
 registerAdapter(chatgptAdapter);
@@ -15,7 +15,7 @@ let reactRoot: ReturnType<typeof createRoot> | null = null;
 let stopWatchingSettings: (() => void) | null = null;
 let stopWatchingNav: (() => void) | null = null;
 
-function render(settings: ThreadMapSettings) {
+function render(settings: ChatMapSettings) {
   const adapter = getActiveAdapter();
   if (!adapter || !reactRoot) return;
   reactRoot.render(<Minimap adapter={adapter} settings={settings} />);
@@ -33,7 +33,7 @@ async function remount() {
   await mount();
 }
 
-function mountSync(settings: ThreadMapSettings) {
+function mountSync(settings: ChatMapSettings) {
   const adapter = getActiveAdapter();
   if (!adapter) return;
   if (document.getElementById(MINIMAP_HOST_ID)) return;
@@ -76,7 +76,7 @@ async function init() {
   try {
     await mount();
   } catch (err) {
-    console.error("[threadmap] mount failed:", err);
+    console.error("[chatmap] mount failed:", err);
     return;
   }
 

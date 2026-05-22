@@ -227,6 +227,40 @@
   to   { transform: scale(1); opacity: 1; }
 }
 
+/* ── important marker (bookmarked) ──────────────────────────
+   small filled diamond sits just outside the right edge of the
+   marker so the rail still reads as a clean line, but bookmarked
+   turns are scannable. */
+.marker--important {
+  /* slight outline so it pops on the dim rail */
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+@media (prefers-color-scheme: light) {
+  .marker--important {
+    box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.20);
+  }
+}
+
+.marker-star {
+  position: absolute;
+  right: -7px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  color: #f5d24a;
+  box-shadow: 0 0 0 1.5px rgba(20, 22, 28, 0.55);
+  pointer-events: none;
+}
+
+@media (prefers-color-scheme: light) {
+  .marker-star {
+    color: #d97706;
+    box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85);
+  }
+}
+
 /* ── single moving preview ──────────────────────────────────
    one preview lives at the rail level and glides between marker
    positions on hover. text snaps so you can read it instantly;
@@ -339,4 +373,258 @@
 
 @media (prefers-color-scheme: light) {
   .preview-text { color: #1e293b; }
+}
+
+/* ── bookmark fields inside the preview ─────────────────────
+   bookmarked messages get a name chip and (optionally) a note
+   block above the usual snippet, so important messages read
+   differently at a glance. */
+.preview-bookmark-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 12px;
+  margin: 0 0 6px;
+  letter-spacing: -0.01em;
+  color: #f1f5f9;
+}
+
+.preview-bookmark-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.preview-bookmark-note {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.04);
+  border-left: 2px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.preview-card--bookmarked {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+@media (prefers-color-scheme: light) {
+  .preview-bookmark-name { color: #0f172a; }
+  .preview-bookmark-note {
+    color: #334155;
+    background: rgba(15, 23, 42, 0.04);
+    border-left-color: rgba(15, 23, 42, 0.20);
+  }
+  .preview-card--bookmarked { border-color: rgba(15, 23, 42, 0.14); }
+}
+
+/* ── bookmark editor popover ────────────────────────────────
+   appears in place of the hover preview when the user mod-clicks
+   a marker. same translucent panel, with form controls inside. */
+.bookmark-editor {
+  position: absolute;
+  right: calc(100% + 14px);
+  transform: translateY(-50%);
+  z-index: 2;
+  pointer-events: auto;
+  width: 260px;
+  background: rgba(20, 22, 28, 0.72);
+  color: #f1f5f9;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 14px;
+  padding: 12px;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 12px;
+  line-height: 1.4;
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
+  animation: preview-fade-in 120ms ease;
+}
+
+@media (prefers-color-scheme: light) {
+  .bookmark-editor {
+    background: rgba(255, 255, 255, 0.80);
+    color: #0f172a;
+    border-color: rgba(15, 23, 42, 0.10);
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
+  }
+}
+
+.be-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.be-role {
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #94a3b8;
+}
+
+.be-close {
+  background: none;
+  border: none;
+  color: #64748b;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.be-close:hover { color: #f1f5f9; }
+@media (prefers-color-scheme: light) {
+  .be-close:hover { color: #0f172a; }
+}
+
+.be-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.be-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+}
+
+.be-input,
+.be-textarea {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: inherit;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+
+.be-input:focus,
+.be-textarea:focus {
+  border-color: rgba(255, 255, 255, 0.30);
+}
+
+.be-textarea {
+  resize: vertical;
+  min-height: 56px;
+}
+
+@media (prefers-color-scheme: light) {
+  .be-input,
+  .be-textarea {
+    background: rgba(15, 23, 42, 0.04);
+    border-color: rgba(15, 23, 42, 0.10);
+  }
+  .be-input:focus,
+  .be-textarea:focus {
+    border-color: rgba(15, 23, 42, 0.30);
+  }
+}
+
+.be-color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.be-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.be-clear-color {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.be-hue {
+  width: 100%;
+  height: 10px;
+  border-radius: 5px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: linear-gradient(
+    to right,
+    hsl(0, 72%, 60%),
+    hsl(60, 72%, 60%),
+    hsl(120, 72%, 60%),
+    hsl(180, 72%, 60%),
+    hsl(240, 72%, 60%),
+    hsl(300, 72%, 60%),
+    hsl(360, 72%, 60%)
+  );
+  outline: none;
+  cursor: pointer;
+}
+
+.be-hue::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+
+.be-hue::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+
+.be-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.be-btn {
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.be-btn--primary {
+  background: #6366f1;
+  color: #fff;
+}
+.be-btn--primary:hover { background: #4f46e5; }
+
+.be-btn--danger {
+  background: transparent;
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.40);
+}
+.be-btn--danger:hover {
+  background: rgba(248, 113, 113, 0.12);
 }

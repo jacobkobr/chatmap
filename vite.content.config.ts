@@ -16,7 +16,7 @@ export default defineConfig({
     emptyOutDir: false, // don't wipe dist — the main build runs first
     lib: {
       entry: resolve(__dirname, "src/content/index.tsx"),
-      name: "ThreadMap",
+      name: "ChatMap",
       formats: ["iife"],
       fileName: () => "content/index.js",
     },
