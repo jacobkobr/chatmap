@@ -5,7 +5,8 @@
   "description": "Adds a hoverable minimap to long ChatGPT conversations so you can jump between messages, code blocks, links, and important answers.",
   "permissions": ["storage"],
   "action": {
-    "default_title": "ThreadMap — click to open settings",
+    "default_title": "ThreadMap — settings",
+    "default_popup": "options/index.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -30,7 +31,6 @@
       "run_at": "document_idle"
     }
   ],
-  "options_page": "options/index.html",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

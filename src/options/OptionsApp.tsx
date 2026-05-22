@@ -60,21 +60,27 @@ function Select<T extends string>({
 
 function OptionsApp() {
   const [settings, setSettings] = useState<ThreadMapSettings>(DEFAULT_SETTINGS);
-  const [saved, setSaved] = useState(false);
+  // gate auto-save on initial load so we don't overwrite stored settings
+  // with defaults on the first render
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    loadSettings().then(setSettings);
+    loadSettings().then((s) => {
+      setSettings(s);
+      setLoaded(true);
+    });
   }, []);
+
+  // auto-save on every change — popup closes on outside click, so a
+  // separate save button is friction. content script picks up changes
+  // immediately via the storage.onChanged listener.
+  useEffect(() => {
+    if (!loaded) return;
+    saveSettings(settings);
+  }, [settings, loaded]);
 
   function update(patch: Partial<ThreadMapSettings>) {
     setSettings((prev) => ({ ...prev, ...patch }));
-    setSaved(false);
-  }
-
-  async function handleSave() {
-    await saveSettings(settings);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
   }
 
   return (
@@ -134,9 +140,7 @@ function OptionsApp() {
       </section>
 
       <div className="options-footer">
-        <button className="save-btn" onClick={handleSave}>
-          {saved ? "saved ✓" : "save settings"}
-        </button>
+        <span className="footer-hint">changes save automatically</span>
       </div>
     </div>
   );
