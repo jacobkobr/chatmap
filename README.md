@@ -1,4 +1,4 @@
-# Chat Timeline
+# chatmap
 
 Chrome extension that adds a small timeline/minimap to ChatGPT conversations so long chats are easier to jump through and bookmark.
 
