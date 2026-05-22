@@ -50,6 +50,19 @@ function findScrollContainer(el: HTMLElement): HTMLElement | null {
   return null;
 }
 
+// sum offsetTop through the offsetParent chain up to container.
+// this gives a stable absolute position inside the scroll content —
+// unaffected by mid-animation scroll state or viewport position.
+function offsetFromContainer(el: HTMLElement, container: HTMLElement): number {
+  let top = 0;
+  let node: HTMLElement | null = el;
+  while (node && node !== container) {
+    top += node.offsetTop;
+    node = node.offsetParent as HTMLElement | null;
+  }
+  return top;
+}
+
 function scrollToElement(el: HTMLElement, reduced: boolean) {
   const behavior: ScrollBehavior = reduced ? "instant" : "smooth";
 
@@ -66,9 +79,8 @@ function scrollToElement(el: HTMLElement, reduced: boolean) {
 
   const container = findScrollContainer(target);
   if (container) {
-    const cRect = container.getBoundingClientRect();
-    const eRect = target.getBoundingClientRect();
-    const dest = container.scrollTop + (eRect.top - cRect.top) - TOP_GAP;
+    // use absolute content offset — stable regardless of current scroll position
+    const dest = offsetFromContainer(target, container) - TOP_GAP;
     container.scrollTo({ top: Math.max(0, dest), behavior });
   } else {
     const eRect = target.getBoundingClientRect();
