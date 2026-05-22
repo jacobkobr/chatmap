@@ -115,12 +115,18 @@
   color is driven by --m-user / --m-asst, themed via :host([data-accent="..."]).
 */
 
-/* defaults — used when no accent attribute is set */
+/* defaults — used when no accent attribute is set. mirrors gray since
+   DEFAULT_SETTINGS picks gray. accent-* vars drive shadow-dom chrome
+   (currently the scan offer popup) so it tracks the user's accent. */
 :host {
   --m-user: #cbd5e1;
   --m-asst: #64748b;
   --m-user-active: #f1f5f9;
   --m-asst-active: #94a3b8;
+  --accent: #a3a3a3;
+  --accent-hover: #bcbcbc;
+  --accent-soft: rgba(163, 163, 163, 0.28);
+  --accent-fg: #1a1a1a;
 }
 
 :host([data-accent="gray"]) {
@@ -128,36 +134,60 @@
   --m-asst: #64748b;
   --m-user-active: #f1f5f9;
   --m-asst-active: #94a3b8;
+  --accent: #a3a3a3;
+  --accent-hover: #bcbcbc;
+  --accent-soft: rgba(163, 163, 163, 0.28);
+  --accent-fg: #1a1a1a;
 }
 :host([data-accent="blue"]) {
   --m-user: #7dd3fc;
   --m-asst: #0369a1;
   --m-user-active: #bae6fd;
   --m-asst-active: #0284c7;
+  --accent: #2596be;
+  --accent-hover: #2aa8d6;
+  --accent-soft: rgba(37, 150, 190, 0.2);
+  --accent-fg: #ffffff;
 }
 :host([data-accent="purple"]) {
   --m-user: #c4b5fd;
   --m-asst: #6d28d9;
   --m-user-active: #ddd6fe;
   --m-asst-active: #7c3aed;
+  --accent: #8b5cf6;
+  --accent-hover: #a78bfa;
+  --accent-soft: rgba(139, 92, 246, 0.24);
+  --accent-fg: #ffffff;
 }
 :host([data-accent="green"]) {
   --m-user: #86efac;
   --m-asst: #15803d;
   --m-user-active: #bbf7d0;
   --m-asst-active: #16a34a;
+  --accent: #22c55e;
+  --accent-hover: #4ade80;
+  --accent-soft: rgba(34, 197, 94, 0.24);
+  --accent-fg: #ffffff;
 }
 :host([data-accent="orange"]) {
   --m-user: #fdba74;
   --m-asst: #c2410c;
   --m-user-active: #fed7aa;
   --m-asst-active: #ea580c;
+  --accent: #f97316;
+  --accent-hover: #fb923c;
+  --accent-soft: rgba(249, 115, 22, 0.24);
+  --accent-fg: #ffffff;
 }
 :host([data-accent="pink"]) {
   --m-user: #f9a8d4;
   --m-asst: #be185d;
   --m-user-active: #fbcfe8;
   --m-asst-active: #db2777;
+  --accent: #ec4899;
+  --accent-hover: #f472b6;
+  --accent-soft: rgba(236, 72, 153, 0.24);
+  --accent-fg: #ffffff;
 }
 
 @media (prefers-color-scheme: light) {
@@ -411,6 +441,34 @@
 
 .preview-card--bookmarked {
   border-color: rgba(255, 255, 255, 0.14);
+}
+
+/* subtle inline remove — only present on bookmarked previews so it
+   doesn't add noise to the hover card otherwise. dimmed by default,
+   fully visible on hover so accidental clicks are unlikely. */
+.preview-bookmark-remove {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 3px 8px;
+  background: transparent;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  border-radius: 6px;
+  color: #f87171;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  opacity: 0.75;
+  transition:
+    opacity 120ms ease,
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.preview-bookmark-remove:hover {
+  opacity: 1;
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.55);
 }
 
 @media (prefers-color-scheme: light) {
@@ -695,10 +753,10 @@
   flex: 1;
   min-height: 32px;
   padding: 0 14px;
-  border: 1px solid #2596be;
+  border: 1px solid var(--accent);
   border-radius: 10px;
-  background: #2596be;
-  color: #ffffff;
+  background: var(--accent);
+  color: var(--accent-fg);
   font-size: 12px;
   font-weight: 650;
   cursor: pointer;
@@ -710,11 +768,11 @@
     box-shadow 150ms ease;
 }
 .scan-offer-btn-primary:hover {
-  background: #2aa8d6;
-  border-color: #2aa8d6;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 .scan-offer-btn-primary:focus-visible {
-  box-shadow: 0 0 0 3px rgba(37, 150, 190, 0.2);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .scan-offer-btn-text {
@@ -740,8 +798,8 @@
   color: #f1f1f1;
 }
 .scan-offer-btn-text:focus-visible {
-  border-color: #2596be;
-  box-shadow: 0 0 0 3px rgba(37, 150, 190, 0.2);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .scan-offer-progress {
@@ -755,6 +813,6 @@
 
 .scan-offer-progress-bar {
   height: 100%;
-  background: #2596be;
+  background: var(--accent);
   transition: width 240ms ease;
 }

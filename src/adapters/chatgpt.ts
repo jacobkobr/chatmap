@@ -36,15 +36,17 @@ const chatgptAdapter: ChatSiteAdapter = {
 
   getMessageElements(root: HTMLElement): HTMLElement[] {
     // conversation-turn-N containers bundle the full turn (text + attachments + images).
-    // filter to only turns that actually contain a user or assistant message —
-    // this removes tool-call turns, system turns, and empty thinking containers.
+    // accept turns with an explicit author-role OR turns containing prose/
+    // markdown content. instant-answer-mode assistant turns sometimes ship
+    // without `data-message-author-role` on the response wrapper, so the
+    // prose hooks are the only reliable signal that content exists.
     const byTurn = Array.from(
       root.querySelectorAll<HTMLElement>("[data-testid^='conversation-turn-']")
     )
       .filter((el) => !isExcluded(el))
       .filter((el) =>
         el.querySelector(
-          "[data-message-author-role='user'], [data-message-author-role='assistant']"
+          "[data-message-author-role='user'], [data-message-author-role='assistant'], .markdown, [class*='markdown'], [class*='prose']"
         )
       );
 
@@ -59,19 +61,36 @@ const chatgptAdapter: ChatSiteAdapter = {
   },
 
   getMessageRole(element: HTMLElement): ChatMessageRole {
-    // direct attribute (fallback path)
+    // direct attribute (fallback path — when getMessageElements returned
+    // the author-role node itself)
     const direct = element.getAttribute("data-message-author-role");
     if (direct === "user") return "user";
     if (direct === "assistant") return "assistant";
 
-    // first child with the attribute (conversation-turn path)
-    const child = element.querySelector<HTMLElement>("[data-message-author-role]");
-    if (child) {
-      const cr = child.getAttribute("data-message-author-role");
-      if (cr === "user") return "user";
-      if (cr === "assistant") return "assistant";
+    // scan ALL descendants with the attribute and prefer 'assistant'. some
+    // chatgpt modes (instant answer) nest a user-role node inside the
+    // assistant turn (likely the prompt echo / citation block), and the
+    // previous first-match lookup mis-labeled the entire turn as user.
+    const children = element.querySelectorAll<HTMLElement>("[data-message-author-role]");
+    let hasUser = false;
+    for (const c of children) {
+      const r = c.getAttribute("data-message-author-role");
+      if (r === "assistant") return "assistant";
+      if (r === "user") hasUser = true;
     }
 
+    // last-resort: if a prose/markdown body exists outside any user-role
+    // descendant, it's an assistant response. covers turns where the role
+    // attribute is absent entirely.
+    const prose = element.querySelector<HTMLElement>(
+      ".markdown, [class*='markdown'], [class*='prose']"
+    );
+    if (prose) {
+      const userBody = element.querySelector<HTMLElement>("[data-message-author-role='user']");
+      if (!userBody || !userBody.contains(prose)) return "assistant";
+    }
+
+    if (hasUser) return "user";
     return "unknown";
   },
 

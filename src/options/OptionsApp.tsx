@@ -195,7 +195,7 @@ function OptionsApp() {
   }
 
   return (
-    <main className="options-root">
+    <main className="options-root" data-accent={settings.accentColor}>
 
 
       <section className="options-card">

@@ -14,9 +14,57 @@
   --muted: #b9b9b9;
   --muted-soft: #8f8f8f;
   --input: #171717;
+  /* accent vars are overridden per-theme below — these defaults match aqua
+     so the panel still renders correctly before settings hydrate. */
   --accent: #2596be;
   --accent-hover: #2aa8d6;
   --accent-soft: rgba(37, 150, 190, 0.2);
+  --accent-fg: #ffffff;
+}
+
+/* per-accent overrides keyed off data-accent on the .options-root element.
+   the chip/toggle on-state and focus rings inherit these, so the whole
+   panel theme tracks whatever the user picked. */
+[data-accent="blue"] {
+  --accent: #2596be;
+  --accent-hover: #2aa8d6;
+  --accent-soft: rgba(37, 150, 190, 0.2);
+  --accent-fg: #ffffff;
+}
+
+[data-accent="gray"] {
+  --accent: #a3a3a3;
+  --accent-hover: #bcbcbc;
+  --accent-soft: rgba(163, 163, 163, 0.28);
+  --accent-fg: #1a1a1a;
+}
+
+[data-accent="purple"] {
+  --accent: #8b5cf6;
+  --accent-hover: #a78bfa;
+  --accent-soft: rgba(139, 92, 246, 0.24);
+  --accent-fg: #ffffff;
+}
+
+[data-accent="green"] {
+  --accent: #22c55e;
+  --accent-hover: #4ade80;
+  --accent-soft: rgba(34, 197, 94, 0.24);
+  --accent-fg: #ffffff;
+}
+
+[data-accent="orange"] {
+  --accent: #f97316;
+  --accent-hover: #fb923c;
+  --accent-soft: rgba(249, 115, 22, 0.24);
+  --accent-fg: #ffffff;
+}
+
+[data-accent="pink"] {
+  --accent: #ec4899;
+  --accent-hover: #f472b6;
+  --accent-soft: rgba(236, 72, 153, 0.24);
+  --accent-fg: #ffffff;
 }
 
 html,
@@ -272,7 +320,7 @@ button {
 .mod-chip--on {
   border-color: var(--accent);
   background: var(--accent);
-  color: #ffffff;
+  color: var(--accent-fg);
 }
 
 .key-recorder {
@@ -306,8 +354,8 @@ button {
 
 .key-recorder--active {
   border-color: var(--accent);
-  background: rgba(37, 150, 190, 0.12);
-  color: #def5ff;
+  background: var(--accent-soft);
+  color: var(--text);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 

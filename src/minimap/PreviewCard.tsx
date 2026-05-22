@@ -6,6 +6,7 @@ interface Props {
   index: number;
   total: number;
   bookmark?: MessageBookmark;
+  onDeleteBookmark?: () => void;
 }
 
 const BADGE_ICONS: Record<string, string> = {
@@ -15,7 +16,7 @@ const BADGE_ICONS: Record<string, string> = {
   long: "≡",
 };
 
-export function PreviewCard({ msg, index, total, bookmark }: Props) {
+export function PreviewCard({ msg, index, total, bookmark, onDeleteBookmark }: Props) {
   const roleLabel = msg.role === "user" ? "You" : "ChatGPT";
   const badges = featureLabels(msg);
   const cardClass = bookmark ? "preview-card preview-card--bookmarked" : "preview-card";
@@ -46,6 +47,19 @@ export function PreviewCard({ msg, index, total, bookmark }: Props) {
 
       {bookmark?.note && (
         <p className="preview-bookmark-note">{bookmark.note}</p>
+      )}
+
+      {bookmark && onDeleteBookmark && (
+        <button
+          type="button"
+          className="preview-bookmark-remove"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDeleteBookmark();
+          }}
+        >
+          remove bookmark
+        </button>
       )}
 
       {badges.length > 0 && (
