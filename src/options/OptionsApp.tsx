@@ -246,6 +246,16 @@ function OptionsApp() {
           ]}
           onChange={(v) => update({ accentColor: v })}
         />
+
+        <Select
+          label="Load history"
+          value={settings.chatLoadMode}
+          options={[
+            { value: "api", label: "API (fast)" },
+            { value: "scan", label: "Scan only" },
+          ]}
+          onChange={(v) => update({ chatLoadMode: v })}
+        />
       </section>
 
       <section className="options-card">

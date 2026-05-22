@@ -1,7 +1,83 @@
-import type { ChatSiteAdapter } from "./types";
+import type { ChatSiteAdapter, ApiMessage } from "./types";
 import type { ChatMessageRole, ChatMessageFeature } from "../shared/types";
 import { safeTextContent } from "../shared/utils";
 import { LONG_ANSWER_THRESHOLD } from "../shared/constants";
+
+// lightweight feature detection over plain text. live dom-walked records
+// use richer element-based heuristics; for api-loaded records we only have
+// the parts text, so we infer code/link from markdown signals.
+function detectFeaturesFromText(text: string): ChatMessageFeature[] {
+  const features: ChatMessageFeature[] = [];
+  if (/```/.test(text)) features.push("code");
+  if (/\bhttps?:\/\/\S+/i.test(text)) features.push("link");
+  if (text.length > LONG_ANSWER_THRESHOLD) features.push("long-answer");
+  return features;
+}
+
+// fetch the conversation tree from chatgpt's own backend. uses the page's
+// existing auth session (cookie + bearer token from /api/auth/session) —
+// no user setup required. returns messages in linear order following the
+// current_node parent chain, which matches what chatgpt displays after
+// edits/regenerations.
+async function loadConversationFromApi(convId: string): Promise<ApiMessage[]> {
+  const sessionRes = await fetch("/api/auth/session", { credentials: "same-origin" });
+  if (!sessionRes.ok) throw new Error(`session ${sessionRes.status}`);
+  const session = await sessionRes.json();
+  const token = session?.accessToken;
+  if (!token) throw new Error("no access token");
+
+  const convRes = await fetch(`/backend-api/conversation/${convId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    credentials: "same-origin",
+  });
+  if (!convRes.ok) throw new Error(`conversation ${convRes.status}`);
+  const data = await convRes.json();
+
+  const mapping = data?.mapping;
+  if (!mapping || typeof mapping !== "object") {
+    throw new Error("conversation missing mapping");
+  }
+
+  // walk current_node back to root via parent pointers so we get the active
+  // branch of the tree (chatgpt stores edits as siblings). then reverse for
+  // chronological order.
+  const chain: string[] = [];
+  let cursor: string | null | undefined = data.current_node;
+  const seen = new Set<string>();
+  while (cursor && mapping[cursor] && !seen.has(cursor)) {
+    seen.add(cursor);
+    chain.push(cursor);
+    cursor = mapping[cursor].parent ?? null;
+  }
+  chain.reverse();
+
+  const messages: ApiMessage[] = [];
+  let order = 1;
+  for (const nodeId of chain) {
+    const node = mapping[nodeId];
+    const msg = node?.message;
+    if (!msg) continue;
+    const role = msg.author?.role;
+    if (role !== "user" && role !== "assistant") continue;
+
+    const parts: unknown[] = msg.content?.parts ?? [];
+    const text = parts
+      .filter((p): p is string => typeof p === "string")
+      .join("\n")
+      .trim();
+    if (text.length === 0) continue;
+
+    messages.push({
+      id: nodeId,
+      role,
+      text,
+      features: detectFeaturesFromText(text),
+      order: order++,
+    });
+  }
+
+  return messages;
+}
 
 function isExcluded(el: HTMLElement): boolean {
   if (el.closest("nav")) return true;
@@ -123,6 +199,8 @@ const chatgptAdapter: ChatSiteAdapter = {
     if (text.length > LONG_ANSWER_THRESHOLD) features.push("long-answer");
     return features;
   },
+
+  loadConversation: loadConversationFromApi,
 };
 
 export default chatgptAdapter;

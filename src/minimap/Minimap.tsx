@@ -227,7 +227,8 @@ function tweenContainerToMessage(
 // resolve the freshest live dom node for a message. tries (in order):
 //   1. the stored element, if still attached
 //   2. our stamped data-chatmap-id (cheap, may be stripped by react re-renders)
-//   3. the adapter-supplied dom anchor (chatgpt's conversation-turn-N data-testid)
+//   3. chatgpt's data-message-id (canonical, used for api-seeded records)
+//   4. the adapter-supplied dom anchor (conversation-turn-N data-testid)
 // returns null if nothing resolves — caller should treat that as "virtualized
 // out, need to scroll into view first."
 function resolveTarget(msg: ChatMessageRecord): HTMLElement | null {
@@ -237,6 +238,19 @@ function resolveTarget(msg: ChatMessageRecord): HTMLElement | null {
     `[data-chatmap-id="${msg.id}"]`
   );
   if (byId) return byId;
+
+  if (msg.chatgptMsgId) {
+    const safe = msg.chatgptMsgId.replace(/"/g, '\\"');
+    const inner = document.querySelector<HTMLElement>(
+      `[data-message-id="${safe}"]`
+    );
+    if (inner) {
+      const wrapper = inner.closest<HTMLElement>(
+        "[data-testid^='conversation-turn-']"
+      );
+      return wrapper ?? inner;
+    }
+  }
 
   if (msg.domAnchor) {
     // escape attribute value just in case future anchors contain quotes
@@ -352,7 +366,7 @@ export function Minimap({ adapter, settings }: Props) {
     cacheState,
     markFullyScanned,
     markOfferDismissed,
-  } = useMessageIndex(adapter);
+  } = useMessageIndex(adapter, settings.chatLoadMode);
   const [showScanOffer, setShowScanOffer] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
