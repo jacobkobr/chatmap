@@ -40,3 +40,4 @@ export const DEFAULT_SETTINGS = {
 };
 
 export const BOOKMARKS_STORAGE_KEY = "chatmap-bookmarks";
+export const MARKER_CACHE_STORAGE_KEY = "chatmap-marker-cache";
