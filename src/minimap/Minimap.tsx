@@ -13,17 +13,60 @@ interface Props {
 
 const TOP_GAP = 110; // px gap from viewport top after scroll
 
+// find the real scroll container by walking up from the element.
+// we require scrollHeight > clientHeight so we skip overflow:auto wrappers
+// that happen to have the property set but contain no overflow.
+function findScrollContainer(el: HTMLElement): HTMLElement | null {
+  let node: HTMLElement | null = el.parentElement;
+  while (node && node !== document.body) {
+    const s = getComputedStyle(node);
+    const scrollable = s.overflowY === "auto" || s.overflowY === "scroll";
+    if (scrollable && node.scrollHeight > node.clientHeight + 4) return node;
+    node = node.parentElement;
+  }
+  // fallback: walk DOWN from main to find the first truly scrollable div
+  const main = document.querySelector<HTMLElement>("main");
+  if (main) {
+    const found = findScrollableDown(main, 0);
+    if (found) return found;
+  }
+  return null;
+}
+
+function findScrollableDown(el: HTMLElement, depth: number): HTMLElement | null {
+  if (depth > 8) return null;
+  const s = getComputedStyle(el);
+  if ((s.overflowY === "auto" || s.overflowY === "scroll") && el.scrollHeight > el.clientHeight + 4) return el;
+  for (const child of el.children) {
+    const r = findScrollableDown(child as HTMLElement, depth + 1);
+    if (r) return r;
+  }
+  return null;
+}
+
 function scrollToElement(el: HTMLElement, reduced: boolean) {
-  // scroll-margin-top lets the browser handle any nested scroll container depth —
-  // we just tell it "land this element with N px clearance from the top"
-  const prev = el.style.scrollMarginTop;
-  el.style.scrollMarginTop = `${TOP_GAP}px`;
-  el.scrollIntoView({
-    behavior: reduced ? "instant" : "smooth",
-    block: "start",
-  });
-  // restore after the scroll animation finishes
-  setTimeout(() => { el.style.scrollMarginTop = prev; }, 1200);
+  const behavior: ScrollBehavior = reduced ? "instant" : "smooth";
+
+  // if el was removed from DOM by chatgpt, look it up by stamped id
+  let target = el;
+  if (!document.contains(target)) {
+    const fresh = target.dataset.threadmapId
+      ? document.querySelector<HTMLElement>(`[data-threadmap-id="${target.dataset.threadmapId}"]`)
+      : null;
+    if (!fresh) return;
+    target = fresh;
+  }
+
+  const container = findScrollContainer(target);
+  if (container) {
+    const cRect = container.getBoundingClientRect();
+    const eRect = target.getBoundingClientRect();
+    const scrollTo = container.scrollTop + (eRect.top - cRect.top) - TOP_GAP;
+    container.scrollTo({ top: Math.max(0, scrollTo), behavior });
+  } else {
+    const eRect = target.getBoundingClientRect();
+    window.scrollTo({ top: Math.max(0, window.scrollY + eRect.top - TOP_GAP), behavior });
+  }
 }
 
 // 14px per message, 80px min, 88% viewport max

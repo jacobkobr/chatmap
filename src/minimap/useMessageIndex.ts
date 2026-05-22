@@ -62,6 +62,7 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [unreadIds, setUnreadIds] = useState<Set<string>>(new Set());
   const suppressUntilRef = useRef(0);
+  const messagesRef = useRef<ChatMessageRecord[]>([]);
 
   // accumulated record map — messages are added as chatgpt lazy-loads earlier
   // history but never removed within the same conversation.
@@ -112,7 +113,7 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
     });
 
     // mark new messages unread if user isn't at the bottom
-    const prevIds = new Set(messages.map((m) => m.id));
+    const prevIds = new Set(messagesRef.current.map((m) => m.id));
     const appeared = sorted.filter((r) => !prevIds.has(r.id));
     if (appeared.length > 0 && !isNearBottom()) {
       setUnreadIds((prev) => {
@@ -123,9 +124,10 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
     }
 
     setScrollHeight(root.scrollHeight || 1);
+    messagesRef.current = sorted;
     setMessages(sorted);
     setIsStreaming(isStreamingNow());
-  }, [adapter, messages]);
+  }, [adapter]);
 
   const debouncedRefresh = useRef(debounce(refresh as () => void, DEBOUNCE_MS));
 
