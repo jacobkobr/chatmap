@@ -175,8 +175,8 @@ button {
 }
 
 .toggle-btn--on {
-  border-color: var(--accent);
-  background: var(--accent);
+  border-color: #a3a3a3;
+  background: #a3a3a3;
 }
 
 .toggle-thumb {
@@ -270,9 +270,9 @@ button {
 }
 
 .mod-chip--on {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #ffffff;
+  border-color: #a3a3a3;
+  background: #a3a3a3;
+  color: #1a1a1a;
 }
 
 .key-recorder {
