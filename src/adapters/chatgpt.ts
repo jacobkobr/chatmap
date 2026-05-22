@@ -35,42 +35,41 @@ const chatgptAdapter: ChatSiteAdapter = {
   },
 
   getMessageElements(root: HTMLElement): HTMLElement[] {
-    // conversation-turn containers guarantee exactly one element per full turn —
-    // this bundles text + images + tool calls into a single marker
+    // conversation-turn-N containers bundle the full turn (text + attachments + images).
+    // filter to only turns that actually contain a user or assistant message —
+    // this removes tool-call turns, system turns, and empty thinking containers.
     const byTurn = Array.from(
       root.querySelectorAll<HTMLElement>("[data-testid^='conversation-turn-']")
-    ).filter((el) => !isExcluded(el));
+    )
+      .filter((el) => !isExcluded(el))
+      .filter((el) =>
+        el.querySelector(
+          "[data-message-author-role='user'], [data-message-author-role='assistant']"
+        )
+      );
 
     if (byTurn.length > 0) return keepOutermost(byTurn);
 
-    // fallback: data-message-author-role (some chatgpt dom variations)
+    // fallback: data-message-author-role directly (older/alternate chatgpt builds)
     const byRole = Array.from(
-      root.querySelectorAll<HTMLElement>("[data-message-author-role]")
+      root.querySelectorAll<HTMLElement>("[data-message-author-role='user'], [data-message-author-role='assistant']")
     ).filter((el) => !isExcluded(el));
 
     return byRole.length > 0 ? keepOutermost(byRole) : [];
   },
 
   getMessageRole(element: HTMLElement): ChatMessageRole {
-    // direct attribute present (fallback path uses this)
+    // direct attribute (fallback path)
     const direct = element.getAttribute("data-message-author-role");
     if (direct === "user") return "user";
     if (direct === "assistant") return "assistant";
 
-    // look inside the turn container (primary path)
+    // first child with the attribute (conversation-turn path)
     const child = element.querySelector<HTMLElement>("[data-message-author-role]");
     if (child) {
       const cr = child.getAttribute("data-message-author-role");
       if (cr === "user") return "user";
       if (cr === "assistant") return "assistant";
-    }
-
-    // look up the tree (handles edge cases)
-    const ancestor = element.closest<HTMLElement>("[data-message-author-role]");
-    if (ancestor) {
-      const ar = ancestor.getAttribute("data-message-author-role");
-      if (ar === "user") return "user";
-      if (ar === "assistant") return "assistant";
     }
 
     return "unknown";

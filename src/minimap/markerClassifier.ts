@@ -6,6 +6,8 @@ export function isMarkerVisible(
   msg: ChatMessageRecord,
   settings: ThreadMapSettings
 ): boolean {
+  // unknown role = tool call, system message, or unresolvable — never show
+  if (msg.role === "unknown") return false;
   // gate out near-empty assistant responses (typing artifacts, etc.)
   if (msg.role === "assistant" && msg.fullTextLength < MIN_RESPONSE_LENGTH) return false;
   if (msg.role === "user" && !settings.showUserMessages) return false;

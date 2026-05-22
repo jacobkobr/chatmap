@@ -11,20 +11,23 @@ function buildRecords(
   const elements = adapter.getMessageElements(root);
   if (elements.length === 0) return [];
 
-  const scrollEl = findScrollContainer(root);
-  const scrollTop = scrollEl?.scrollTop ?? window.scrollY;
-  const rootTop = scrollEl ? scrollEl.getBoundingClientRect().top : 0;
-
   return elements.map((el, i) => {
-    const rect = el.getBoundingClientRect();
     const text = adapter.getMessageText(el);
 
+    // stable id per element — stamped once, survives re-renders
     let id = el.dataset.threadmapId;
     if (!id) {
       id = generateId(`msg-${i}`);
       el.dataset.threadmapId = id;
     }
 
+    // sort key — turn number from data-testid, or fallback to discovery order
+    if (!el.dataset.threadmapOrder) {
+      const m = el.getAttribute("data-testid")?.match(/(\d+)$/);
+      el.dataset.threadmapOrder = m ? m[1] : String(Date.now() + i);
+    }
+
+    const rect = el.getBoundingClientRect();
     return {
       id,
       role: adapter.getMessageRole(el),
@@ -32,21 +35,10 @@ function buildRecords(
       textPreview: safeTextContent(el).slice(0, PREVIEW_CHAR_LIMIT),
       fullTextLength: text.length,
       features: adapter.getMessageFeatures(el, text),
-      top: rect.top - rootTop + scrollTop,
+      top: rect.top + window.scrollY,
       height: rect.height,
     };
   });
-}
-
-function findScrollContainer(root: HTMLElement): HTMLElement | null {
-  let el: HTMLElement | null = root;
-  while (el && el !== document.body) {
-    const style = getComputedStyle(el);
-    if (style.overflowY === "auto" || style.overflowY === "scroll") return el;
-    el = el.parentElement;
-  }
-  if (root.scrollHeight > root.clientHeight) return root;
-  return null;
 }
 
 function isStreamingNow(): boolean {
@@ -58,14 +50,10 @@ function isStreamingNow(): boolean {
 }
 
 function isNearBottom(): boolean {
-  const sh = document.documentElement.scrollHeight;
-  const sy = window.scrollY;
-  const ih = window.innerHeight;
-  // also check inner scroll containers
-  const innerSh = document.querySelector("main")?.scrollHeight ?? sh;
-  const innerSy = document.querySelector("main")?.scrollTop ?? 0;
-  const innerCheck = innerSh - innerSy - ih < 300;
-  return (sh - sy - ih < 300) || innerCheck;
+  // check the main inner scroll container chatgpt uses
+  const inner = document.querySelector<HTMLElement>("main [class*='react-scroll-to-bottom'] > div > div");
+  if (inner) return inner.scrollHeight - inner.scrollTop - inner.clientHeight < 300;
+  return document.documentElement.scrollHeight - window.scrollY - window.innerHeight < 300;
 }
 
 export function useMessageIndex(adapter: ChatSiteAdapter | null) {
@@ -73,12 +61,12 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
   const [scrollHeight, setScrollHeight] = useState(1);
   const [isStreaming, setIsStreaming] = useState(false);
   const [unreadIds, setUnreadIds] = useState<Set<string>>(new Set());
-  const scrollElRef = useRef<HTMLElement | null>(null);
-  const prevIdsRef = useRef<Set<string>>(new Set());
   const suppressUntilRef = useRef(0);
 
-  // call before a programmatic scroll to stop observer from rebuilding
-  // while chatgpt lazy-renders previously off-screen messages
+  // accumulated record map — messages are added as chatgpt lazy-loads earlier
+  // history but never removed within the same conversation.
+  const accumulatedRef = useRef<Map<string, ChatMessageRecord>>(new Map());
+
   const suppressRefresh = useCallback((ms: number) => {
     suppressUntilRef.current = Date.now() + ms;
   }, []);
@@ -102,35 +90,42 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
     }
 
     const records = buildRecords(adapter, root);
-    const scrollEl = findScrollContainer(root);
-    scrollElRef.current = scrollEl;
 
-    const sh =
-      scrollEl?.scrollHeight ??
-      document.documentElement.scrollHeight ??
-      1;
+    // detect navigation to a new conversation — if none of the fresh records
+    // match anything accumulated, the user switched chats, so clear the cache
+    if (accumulatedRef.current.size > 0 && records.length > 0) {
+      const hasOverlap = records.some((r) => accumulatedRef.current.has(r.id));
+      if (!hasOverlap) {
+        accumulatedRef.current.clear();
+        setUnreadIds(new Set());
+      }
+    }
 
-    setScrollHeight(sh || 1);
+    // update accumulated with latest data for currently rendered elements
+    records.forEach((r) => accumulatedRef.current.set(r.id, r));
 
-    // detect newly appeared messages and mark unread if user isn't at bottom
-    const newIds = new Set(records.map((r) => r.id));
-    const appeared: string[] = [];
-    newIds.forEach((id) => {
-      if (!prevIdsRef.current.has(id)) appeared.push(id);
+    // sort by turn order so history is always oldest-first
+    const sorted = Array.from(accumulatedRef.current.values()).sort((a, b) => {
+      const ao = parseInt(a.element.dataset.threadmapOrder ?? "999999");
+      const bo = parseInt(b.element.dataset.threadmapOrder ?? "999999");
+      return ao - bo;
     });
-    prevIdsRef.current = newIds;
 
+    // mark new messages unread if user isn't at the bottom
+    const prevIds = new Set(messages.map((m) => m.id));
+    const appeared = sorted.filter((r) => !prevIds.has(r.id));
     if (appeared.length > 0 && !isNearBottom()) {
       setUnreadIds((prev) => {
         const next = new Set(prev);
-        appeared.forEach((id) => next.add(id));
+        appeared.forEach((r) => next.add(r.id));
         return next;
       });
     }
 
-    setMessages(records);
+    setScrollHeight(root.scrollHeight || 1);
+    setMessages(sorted);
     setIsStreaming(isStreamingNow());
-  }, [adapter]);
+  }, [adapter, messages]);
 
   const debouncedRefresh = useRef(debounce(refresh as () => void, DEBOUNCE_MS));
 
@@ -143,10 +138,6 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
 
     refresh();
 
-    // only rebuild on DOM mutations (new messages), not on scroll —
-    // positions are index-based and IntersectionObserver handles active tracking.
-    // skip mutations that fire while suppressed (e.g. chatgpt lazy-rendering
-    // off-screen messages after a programmatic scroll).
     const observer = new MutationObserver(() => {
       if (Date.now() < suppressUntilRef.current) return;
       debouncedRefresh.current();

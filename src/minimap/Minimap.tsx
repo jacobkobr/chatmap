@@ -11,32 +11,19 @@ interface Props {
   settings: ThreadMapSettings;
 }
 
-const TOP_GAP = 104; // px gap from viewport top after scroll
+const TOP_GAP = 110; // px gap from viewport top after scroll
 
 function scrollToElement(el: HTMLElement, reduced: boolean) {
-  const behavior = reduced ? "instant" : "smooth";
-  const rect = el.getBoundingClientRect();
-
-  // find inner scroll container (chatgpt uses one inside main)
-  let container: HTMLElement | null = el.parentElement;
-  while (container && container !== document.body) {
-    const s = getComputedStyle(container);
-    if (s.overflowY === "auto" || s.overflowY === "scroll") break;
-    container = container.parentElement;
-  }
-
-  if (container && container !== document.body) {
-    const cRect = container.getBoundingClientRect();
-    container.scrollTo({
-      top: container.scrollTop + rect.top - cRect.top - TOP_GAP,
-      behavior,
-    });
-  } else {
-    window.scrollTo({
-      top: window.scrollY + rect.top - TOP_GAP,
-      behavior,
-    });
-  }
+  // scroll-margin-top lets the browser handle any nested scroll container depth —
+  // we just tell it "land this element with N px clearance from the top"
+  const prev = el.style.scrollMarginTop;
+  el.style.scrollMarginTop = `${TOP_GAP}px`;
+  el.scrollIntoView({
+    behavior: reduced ? "instant" : "smooth",
+    block: "start",
+  });
+  // restore after the scroll animation finishes
+  setTimeout(() => { el.style.scrollMarginTop = prev; }, 1200);
 }
 
 // 14px per message, 80px min, 88% viewport max
