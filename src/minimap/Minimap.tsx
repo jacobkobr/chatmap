@@ -9,6 +9,7 @@ import { useMessageIndex } from "./useMessageIndex";
 import { Marker } from "./Marker";
 import { PreviewCard } from "./PreviewCard";
 import { BookmarkEditor } from "./BookmarkEditor";
+import { ScanOffer } from "./ScanOffer";
 import { useBookmarks } from "./useBookmarks";
 import { isMarkerVisible } from "./markerClassifier";
 import {
@@ -115,9 +116,10 @@ function tweenContainerToMessage(
     return;
   }
 
-  const startScrollTop = container.scrollTop;
+  let startScrollTop = container.scrollTop;
   const startTime = performance.now();
   let lastWritten = startScrollTop;
+  let lastScrollHeight = container.scrollHeight;
   let cancelled = false;
   let stableFrames = 0;
   let cachedTarget: HTMLElement | null = initial;
@@ -128,7 +130,21 @@ function tweenContainerToMessage(
     return cachedTarget;
   };
 
+  // distinguish a browser-driven scroll shift (chatgpt lazy-loading older
+  // turns above the viewport, which forces scrollTop to grow so the visible
+  // content stays put) from a genuine user wheel/touch. when scrollHeight
+  // grew this frame, we re-baseline startScrollTop and lastWritten so the
+  // tween formula keeps aiming at the same visual target instead of giving
+  // up and leaving the user halfway there.
   const onUserScroll = () => {
+    const sh = container.scrollHeight;
+    if (sh !== lastScrollHeight) {
+      const shift = container.scrollTop - lastWritten;
+      startScrollTop += shift;
+      lastWritten = container.scrollTop;
+      lastScrollHeight = sh;
+      return;
+    }
     if (Math.abs(container.scrollTop - lastWritten) > CANCEL_TOLERANCE) {
       cancelled = true;
     }
@@ -187,9 +203,10 @@ function tweenContainerToMessage(
 //   1. the stored element, if still attached
 //   2. our stamped data-chatmap-id (cheap, may be stripped by react re-renders)
 //   3. the adapter-supplied dom anchor (chatgpt's conversation-turn-N data-testid)
-// returns null if nothing resolves — caller should bail rather than scroll wrong.
+// returns null if nothing resolves — caller should treat that as "virtualized
+// out, need to scroll into view first."
 function resolveTarget(msg: ChatMessageRecord): HTMLElement | null {
-  if (document.contains(msg.element)) return msg.element;
+  if (msg.element && document.contains(msg.element)) return msg.element;
 
   const byId = document.querySelector<HTMLElement>(
     `[data-chatmap-id="${msg.id}"]`
@@ -208,20 +225,74 @@ function resolveTarget(msg: ChatMessageRecord): HTMLElement | null {
   return null;
 }
 
-function scrollToMessage(msg: ChatMessageRecord, reduced: boolean) {
-  const target = resolveTarget(msg);
-  if (!target) return;
+// pick any in-dom conversation turn so we can find the scroll container
+// even when the desired message is virtualized out.
+function anyLiveTurn(): HTMLElement | null {
+  return document.querySelector<HTMLElement>(
+    "[data-testid^='conversation-turn-']"
+  );
+}
 
-  const container = findScrollContainer(target);
-  if (container) {
-    tweenContainerToMessage(container, msg, reduced);
-  } else {
-    const eRect = target.getBoundingClientRect();
-    window.scrollTo({
-      top: Math.max(0, window.scrollY + eRect.top - TOP_GAP),
-      behavior: reduced ? "instant" : "smooth",
-    });
+// estimate a scroll position for a message that's not in the dom right now.
+// we don't know its actual y, but we know its position in the sorted message
+// list and the container's scroll range — that gets us close enough to
+// trigger chatgpt's lazy-load, after which the element appears and we can
+// run the normal smooth tween.
+function estimateScrollForIndex(
+  container: HTMLElement,
+  msgIdx: number,
+  totalMessages: number
+): number {
+  if (totalMessages <= 1) return 0;
+  const ratio = msgIdx / (totalMessages - 1);
+  const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+  return Math.round(ratio * maxScroll);
+}
+
+function scrollToMessage(
+  msg: ChatMessageRecord,
+  reduced: boolean,
+  msgIdx: number,
+  totalMessages: number
+) {
+  const target = resolveTarget(msg);
+
+  if (target) {
+    const container = findScrollContainer(target);
+    if (container) {
+      tweenContainerToMessage(container, msg, reduced);
+    } else {
+      const eRect = target.getBoundingClientRect();
+      window.scrollTo({
+        top: Math.max(0, window.scrollY + eRect.top - TOP_GAP),
+        behavior: reduced ? "instant" : "smooth",
+      });
+    }
+    return;
   }
+
+  // virtualized: snap toward an estimated scroll position, poll for the
+  // element to mount (chatgpt's lazy-load takes ~100-300ms per slice), then
+  // run the normal tween once it's resolvable.
+  const anyTurn = anyLiveTurn();
+  if (!anyTurn) return;
+  const container = findScrollContainer(anyTurn);
+  if (!container) return;
+
+  const estimate = estimateScrollForIndex(container, msgIdx, totalMessages);
+  container.scrollTo({ top: estimate, behavior: "instant" as ScrollBehavior });
+
+  let attempts = 0;
+  const tryResolve = () => {
+    attempts++;
+    const live = resolveTarget(msg);
+    if (live) {
+      tweenContainerToMessage(container, msg, reduced);
+      return;
+    }
+    if (attempts < 10) setTimeout(tryResolve, 120);
+  };
+  setTimeout(tryResolve, 180);
 }
 
 // 14px per message, 80px min, 88% viewport max
@@ -246,8 +317,20 @@ export function Minimap({ adapter, settings }: Props) {
   // user turn). cleared on regular marker click so manual navigation
   // resets the anchor.
   const lastNavIdxRef = useRef<number | null>(null);
-  const { messages, isStreaming, unreadIds, markRead, suppressRefresh } =
-    useMessageIndex(adapter);
+  const {
+    messages,
+    isStreaming,
+    unreadIds,
+    markRead,
+    suppressRefresh,
+    cacheLoaded,
+    cacheState,
+    markFullyScanned,
+    markOfferDismissed,
+  } = useMessageIndex(adapter);
+  const [showScanOffer, setShowScanOffer] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState(0);
   const bookmarks = useBookmarks();
   const convId = useMemo(() => getConversationId(), [messages.length]);
 
@@ -271,6 +354,197 @@ export function Minimap({ adapter, settings }: Props) {
     if (hoverIdx >= visible.length) setHoverIdx(-1);
     if (editorIdx >= visible.length) setEditorIdx(-1);
   }, [visible.length, hoverIdx, editorIdx]);
+
+  // decide whether to surface the scan offer. shown when:
+  //   - the cache load attempt completed
+  //   - this conversation has never been fully scanned
+  //   - the user hasn't already dismissed the offer for this conversation
+  //   - the chat is non-trivial (several turns rendered OR real scroll range)
+  //   - AND we don't already have full coverage. coverage check: the live
+  //     `messages` set reaches the highest `conversation-turn-N` in the dom
+  //     and has at least that many entries. that's true for any chat the
+  //     user built up while the extension was installed, so they're never
+  //     re-offered to scan a chat they effectively scanned by living through.
+  useEffect(() => {
+    // bail entirely while a scan is in flight — otherwise message growth
+    // during the scan retriggers this effect and unmounts the popup,
+    // losing the progress bar mid-scan.
+    if (isScanning) return;
+    // reset whenever the cache state changes (chat switch or scan completion)
+    setShowScanOffer(false);
+    if (!cacheLoaded) return;
+    if (cacheState?.fullyScanned) return;
+    if (cacheState?.offerDismissed) return;
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 8;
+
+    const check = () => {
+      if (cancelled) return;
+      attempts++;
+
+      // scan the dom for the highest conversation-turn-N. that tells us
+      // how far chatgpt's currently-rendered slice reaches.
+      let maxDomTurn = 0;
+      let domTurns = 0;
+      document
+        .querySelectorAll("[data-testid^='conversation-turn-']")
+        .forEach((el) => {
+          domTurns++;
+          const m = el.getAttribute("data-testid")?.match(/(\d+)$/);
+          if (m) {
+            const n = parseInt(m[1]);
+            if (n > maxDomTurn) maxDomTurn = n;
+          }
+        });
+
+      // coverage: live messages reach the latest visible turn AND there
+      // are enough of them to plausibly fill the gap. flip fullyScanned
+      // so future visits skip the offer entirely.
+      if (messages.length > 0 && maxDomTurn > 0) {
+        const maxCaptured = messages.reduce((m, msg) => {
+          const o = msg.order ?? 0;
+          return o > m ? o : m;
+        }, 0);
+        if (maxCaptured >= maxDomTurn && messages.length >= maxDomTurn) {
+          markFullyScanned();
+          return;
+        }
+      }
+
+      const turn = anyLiveTurn();
+      const container = turn ? findScrollContainer(turn) : null;
+      const scrollExcess = container
+        ? container.scrollHeight - container.clientHeight
+        : 0;
+      if (domTurns >= 4 || scrollExcess > 600) {
+        setShowScanOffer(true);
+        return;
+      }
+      if (attempts < MAX_ATTEMPTS) {
+        timer = setTimeout(check, 500);
+      }
+    };
+
+    timer = setTimeout(check, 600);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [cacheLoaded, cacheState, messages, markFullyScanned, isScanning]);
+
+  // distance-based scan: walk down the conversation one viewport at a
+  // time, waiting on each step for chatgpt's lazy-load to settle before
+  // advancing. earlier time-based tweens raced past long chats at
+  // hundreds of px/frame and missed turns whenever the mount rate
+  // couldn't keep up. now each chunk is bounded by chatgpt's loader
+  // speed, not a wall clock — short chats finish in seconds, long ones
+  // take longer but never skip content.
+  const runScan = useCallback(async () => {
+    const turn = anyLiveTurn();
+    if (!turn) return;
+    const container = findScrollContainer(turn);
+    if (!container) return;
+
+    setIsScanning(true);
+    setScanProgress(0);
+    try {
+      const savedTop = container.scrollTop;
+      const savedHeight = container.scrollHeight;
+
+      // 1. snap to top, then dwell — the oldest turns sometimes take
+      // longer to mount than mid-chat slices, so give them extra grace.
+      container.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+      setScanProgress(0.02);
+      await new Promise((r) => setTimeout(r, 900));
+
+      // step bounds. waits adapt: as soon as no new turns mount for
+      // STABLE_MS we move on, but never sooner than MIN_MS or later
+      // than MAX_MS per chunk.
+      const STEP_MIN_MS = 320;
+      const STEP_STABLE_MS = 240;
+      const STEP_MAX_MS = 1800;
+      // safety: bail if we somehow loop too many times (large chat +
+      // never-stabilizing loader). 600 chunks @ 60% viewport = ~360k px
+      // of scroll range, which is far beyond anything realistic.
+      const HARD_CHUNK_CAP = 600;
+
+      const waitForStable = async () => {
+        const startTs = performance.now();
+        let lastCount = document.querySelectorAll(
+          "[data-testid^='conversation-turn-']"
+        ).length;
+        let lastChangeTs = startTs;
+        while (true) {
+          await new Promise((r) => setTimeout(r, 80));
+          const elapsed = performance.now() - startTs;
+          const now = document.querySelectorAll(
+            "[data-testid^='conversation-turn-']"
+          ).length;
+          if (now !== lastCount) {
+            lastCount = now;
+            lastChangeTs = performance.now();
+          }
+          const stableTime = performance.now() - lastChangeTs;
+          if (elapsed >= STEP_MIN_MS && stableTime >= STEP_STABLE_MS) return;
+          if (elapsed >= STEP_MAX_MS) return;
+        }
+      };
+
+      // 2. step down 60% of a viewport at a time. recompute maxScroll
+      // every iteration because lazy-loading turns grows the container.
+      // exit when we're within a few px of the actual bottom, even if
+      // the bottom kept moving as we descended.
+      let currentTop = 0;
+      let chunks = 0;
+      while (chunks < HARD_CHUNK_CAP) {
+        chunks++;
+        const maxScroll = Math.max(
+          0,
+          container.scrollHeight - container.clientHeight
+        );
+        if (currentTop >= maxScroll - 4) break;
+        const stepSize = Math.max(200, container.clientHeight * 0.6);
+        currentTop = Math.min(maxScroll, currentTop + stepSize);
+        container.scrollTo({
+          top: currentTop,
+          behavior: "instant" as ScrollBehavior,
+        });
+        const pct = maxScroll > 0 ? currentTop / maxScroll : 1;
+        setScanProgress(0.02 + Math.min(0.93, pct * 0.93));
+        await waitForStable();
+      }
+
+      // 3. dwell at the bottom so the last slice has time to settle
+      await new Promise((r) => setTimeout(r, 600));
+
+      // 4. restore, accounting for content lazy-loaded above the user's anchor
+      const delta = container.scrollHeight - savedHeight;
+      container.scrollTo({
+        top: savedTop + delta,
+        behavior: "instant" as ScrollBehavior,
+      });
+      setScanProgress(1);
+
+      await markFullyScanned();
+    } finally {
+      // brief pause on the full bar before we tear it down so the user
+      // actually sees 100%, then unflag scanning — the offer effect will
+      // run, see fullyScanned, and unmount the popup.
+      setTimeout(() => {
+        setIsScanning(false);
+        setShowScanOffer(false);
+      }, 250);
+    }
+  }, [markFullyScanned]);
+
+  const handleDismissScan = useCallback(async () => {
+    await markOfferDismissed();
+    setShowScanOffer(false);
+  }, [markOfferDismissed]);
 
   // desktop-only: hide minimap on narrow viewports
   useEffect(() => {
@@ -321,7 +595,11 @@ export function Minimap({ adapter, settings }: Props) {
         const r = el.getBoundingClientRect();
         if (r.bottom > 0 && r.top < vh) markRead(visible[i].id);
 
-        const visTop = Math.max(0, r.top);
+        // clamp visTop to TOP_GAP: chatgpt's sticky top header (~110px) hides
+        // anything above it, so messages partially behind the header shouldn't
+        // count toward visible extent — otherwise the active highlight locks
+        // to a marker the user can't actually see.
+        const visTop = Math.max(TOP_GAP, r.top);
         const visBot = Math.min(vh, r.bottom);
         const extent = visBot - visTop;
         if (extent <= 0) continue;
@@ -359,20 +637,54 @@ export function Minimap({ adapter, settings }: Props) {
   }, [visible, markRead]);
 
   // raw scroll + highlight without any nav-state side effects. used by
-  // both the regular marker click path and the keybind jump path.
+  // both the regular marker click path and the keybind jump path. when the
+  // target is virtualized out (cache-only marker), the highlight is applied
+  // after the dom node mounts in response to the estimated scroll.
   const performNavigate = useCallback(
     (msg: ChatMessageRecord) => {
       suppressRefresh(900);
-      const target = resolveTarget(msg);
-      if (!target) return;
-      scrollToMessage(msg, settings.reducedMotion);
-      target.classList.add("chatmap-highlight");
-      setTimeout(
-        () => target.classList.remove("chatmap-highlight"),
-        HIGHLIGHT_DURATION_MS
+      const idx = visible.indexOf(msg);
+      scrollToMessage(
+        msg,
+        settings.reducedMotion,
+        idx >= 0 ? idx : 0,
+        visible.length
       );
+
+      // outline the message body (chatgpt's `[data-message-author-role]`
+      // element) rather than the whole conversation-turn wrapper, which
+      // also includes the role label and action row and produces a much
+      // baggier outline than feels right.
+      const applyHighlight = (turn: HTMLElement) => {
+        const inner =
+          turn.querySelector<HTMLElement>("[data-message-author-role]") ?? turn;
+        inner.classList.add("chatmap-highlight");
+        setTimeout(
+          () => inner.classList.remove("chatmap-highlight"),
+          HIGHLIGHT_DURATION_MS
+        );
+      };
+
+      const immediate = resolveTarget(msg);
+      if (immediate) {
+        applyHighlight(immediate);
+        return;
+      }
+
+      // virtualized — poll until the element shows up, then highlight.
+      let tries = 0;
+      const poll = () => {
+        tries++;
+        const live = resolveTarget(msg);
+        if (live) {
+          applyHighlight(live);
+          return;
+        }
+        if (tries < 14) setTimeout(poll, 140);
+      };
+      setTimeout(poll, 240);
     },
-    [suppressRefresh, settings.reducedMotion]
+    [suppressRefresh, settings.reducedMotion, visible]
   );
 
   // marker click — same scroll but resets the keybind-nav anchor so the
@@ -536,7 +848,16 @@ export function Minimap({ adapter, settings }: Props) {
   })();
 
   return (
-    <div
+    <>
+      {showScanOffer && (
+        <ScanOffer
+          scanning={isScanning}
+          progress={scanProgress}
+          onScan={runScan}
+          onDismiss={handleDismissScan}
+        />
+      )}
+      <div
       className={`rail${expanded ? " rail--expanded" : ""}`}
       style={{ height: `${height}px` }}
       onMouseEnter={expand}
@@ -630,5 +951,6 @@ export function Minimap({ adapter, settings }: Props) {
         ▼
       </button>
     </div>
+    </>
   );
 }

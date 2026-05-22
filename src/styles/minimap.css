@@ -628,3 +628,133 @@
 .be-btn--danger:hover {
   background: rgba(248, 113, 113, 0.12);
 }
+
+/* ── scan offer popup ────────────────────────────────────────
+   surfaces on first visit to a long conversation. user can scan
+   (step-walks scroll positions to force chatgpt's lazy-load to
+   mount every turn) or dismiss. dismissed/scanned state persists
+   per conversation in chrome.storage.local so we don't re-ask.
+
+   styled to match the options dropdown — same #212121 surfaces,
+   #2596be accent, inter font, matching border/radius tokens. */
+.scan-offer {
+  position: fixed;
+  top: 80px;
+  right: 48px;
+  width: 300px;
+  background: #212121;
+  color: #f1f1f1;
+  border: 1px solid #3a3a3a;
+  border-radius: 12px;
+  padding: 14px;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
+  z-index: 2147483641;
+  /* override the host's pointer-events: none so clicks reach the buttons.
+     pointer-events is inherited, and without this the whole popup is dead. */
+  pointer-events: auto;
+  animation: scan-offer-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes scan-offer-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.scan-offer-title {
+  color: #f1f1f1;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin-bottom: 6px;
+}
+
+.scan-offer-desc {
+  color: #b9b9b9;
+  font-size: 12px;
+  line-height: 1.45;
+  margin-bottom: 12px;
+}
+
+.scan-offer-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.scan-offer-btn-primary {
+  flex: 1;
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid #2596be;
+  border-radius: 10px;
+  background: #2596be;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  outline: none;
+  font-family: inherit;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+.scan-offer-btn-primary:hover {
+  background: #2aa8d6;
+  border-color: #2aa8d6;
+}
+.scan-offer-btn-primary:focus-visible {
+  box-shadow: 0 0 0 3px rgba(37, 150, 190, 0.2);
+}
+
+.scan-offer-btn-text {
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid #3a3a3a;
+  border-radius: 10px;
+  background: #1a1a1a;
+  color: #b9b9b9;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  outline: none;
+  font-family: inherit;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+.scan-offer-btn-text:hover {
+  border-color: #5a5a5a;
+  background: #202020;
+  color: #f1f1f1;
+}
+.scan-offer-btn-text:focus-visible {
+  border-color: #2596be;
+  box-shadow: 0 0 0 3px rgba(37, 150, 190, 0.2);
+}
+
+.scan-offer-progress {
+  height: 6px;
+  background: #171717;
+  border: 1px solid #3a3a3a;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.scan-offer-progress-bar {
+  height: 100%;
+  background: #2596be;
+  transition: width 240ms ease;
+}
