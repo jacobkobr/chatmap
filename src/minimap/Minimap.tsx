@@ -13,45 +13,57 @@ interface Props {
 
 const TOP_GAP = 110; // px gap from viewport top after scroll
 
-// find the real scroll container by walking up from the element.
-// we require scrollHeight > clientHeight so we skip overflow:auto wrappers
-// that happen to have the property set but contain no overflow.
+// find the real scroll container — collect ALL scrollable ancestors and pick the
+// one with the largest scroll range, which is always the true conversation scroller.
+// intermediate overflow wrappers have smaller ranges and are skipped this way.
 function findScrollContainer(el: HTMLElement): HTMLElement | null {
+  // try the react-scroll-to-bottom child directly — chatgpt's actual scroller
+  // is the first div child of the rtb root
+  const rtb = document.querySelector<HTMLElement>("[class*='react-scroll-to-bottom']");
+  if (rtb) {
+    for (const child of rtb.children) {
+      if (child instanceof HTMLElement) {
+        const s = getComputedStyle(child);
+        if ((s.overflowY === "auto" || s.overflowY === "scroll") &&
+            child.scrollHeight > child.clientHeight + 4) {
+          return child;
+        }
+      }
+    }
+  }
+
+  // collect every scrollable ancestor of el
+  const candidates: HTMLElement[] = [];
   let node: HTMLElement | null = el.parentElement;
   while (node && node !== document.body) {
     const s = getComputedStyle(node);
-    const scrollable = s.overflowY === "auto" || s.overflowY === "scroll";
-    if (scrollable && node.scrollHeight > node.clientHeight + 4) return node;
+    if ((s.overflowY === "auto" || s.overflowY === "scroll") &&
+        node.scrollHeight > node.clientHeight + 4) {
+      candidates.push(node);
+    }
     node = node.parentElement;
   }
-  // fallback: walk DOWN from main to find the first truly scrollable div
-  const main = document.querySelector<HTMLElement>("main");
-  if (main) {
-    const found = findScrollableDown(main, 0);
-    if (found) return found;
-  }
-  return null;
-}
 
-function findScrollableDown(el: HTMLElement, depth: number): HTMLElement | null {
-  if (depth > 8) return null;
-  const s = getComputedStyle(el);
-  if ((s.overflowY === "auto" || s.overflowY === "scroll") && el.scrollHeight > el.clientHeight + 4) return el;
-  for (const child of el.children) {
-    const r = findScrollableDown(child as HTMLElement, depth + 1);
-    if (r) return r;
+  if (candidates.length > 0) {
+    // largest scroll range = the actual conversation container (not a wrapper)
+    candidates.sort(
+      (a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight)
+    );
+    return candidates[0];
   }
+
   return null;
 }
 
 function scrollToElement(el: HTMLElement, reduced: boolean) {
   const behavior: ScrollBehavior = reduced ? "instant" : "smooth";
 
-  // if el was removed from DOM by chatgpt, look it up by stamped id
+  // if el was removed from DOM, try to find a fresh copy by its stamped id
   let target = el;
   if (!document.contains(target)) {
-    const fresh = target.dataset.threadmapId
-      ? document.querySelector<HTMLElement>(`[data-threadmap-id="${target.dataset.threadmapId}"]`)
+    const id = target.dataset.threadmapId;
+    const fresh = id
+      ? document.querySelector<HTMLElement>(`[data-threadmap-id="${id}"]`)
       : null;
     if (!fresh) return;
     target = fresh;
@@ -61,8 +73,8 @@ function scrollToElement(el: HTMLElement, reduced: boolean) {
   if (container) {
     const cRect = container.getBoundingClientRect();
     const eRect = target.getBoundingClientRect();
-    const scrollTo = container.scrollTop + (eRect.top - cRect.top) - TOP_GAP;
-    container.scrollTo({ top: Math.max(0, scrollTo), behavior });
+    const dest = container.scrollTop + (eRect.top - cRect.top) - TOP_GAP;
+    container.scrollTo({ top: Math.max(0, dest), behavior });
   } else {
     const eRect = target.getBoundingClientRect();
     window.scrollTo({ top: Math.max(0, window.scrollY + eRect.top - TOP_GAP), behavior });
