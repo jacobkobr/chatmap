@@ -18,19 +18,19 @@ export interface ChatMessageRecord {
   features: ChatMessageFeature[];
   top: number;
   height: number;
+  // adapter-supplied anchor used to re-resolve the dom node after virtualization
+  // (chatgpt: conversation-turn-N data-testid). optional so other adapters can omit.
+  domAnchor?: string;
 }
+
+export type AccentColor = "gray" | "blue" | "purple" | "green" | "orange" | "pink";
 
 export interface ThreadMapSettings {
   enabled: boolean;
   showUserMessages: boolean;
   showAssistantMessages: boolean;
-  showCodeMarkers: boolean;
-  showLongAnswerMarkers: boolean;
-  showLinkMarkers: boolean;
-  showImageMarkers: boolean;
-  markerDensity: "compact" | "normal" | "detailed";
   reducedMotion: boolean;
-  accentColor: "neutral" | "blue-purple" | "chatgpt";
+  accentColor: AccentColor;
 }
 
 export interface ThreadMapBookmark {

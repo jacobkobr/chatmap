@@ -10,11 +10,6 @@ export const DEFAULT_SETTINGS = {
   enabled: true,
   showUserMessages: true,
   showAssistantMessages: true,
-  showCodeMarkers: true,
-  showLongAnswerMarkers: true,
-  showLinkMarkers: true,
-  showImageMarkers: true,
-  markerDensity: "normal" as const,
   reducedMotion: false,
-  accentColor: "neutral" as const,
+  accentColor: "gray" as const,
 };

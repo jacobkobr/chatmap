@@ -50,41 +50,141 @@ function findScrollContainer(el: HTMLElement): HTMLElement | null {
   return null;
 }
 
-// sum offsetTop through the offsetParent chain up to container.
-// this gives a stable absolute position inside the scroll content —
-// unaffected by mid-animation scroll state or viewport position.
-function offsetFromContainer(el: HTMLElement, container: HTMLElement): number {
-  let top = 0;
-  let node: HTMLElement | null = el;
-  while (node && node !== container) {
-    top += node.offsetTop;
-    node = node.offsetParent as HTMLElement | null;
-  }
-  return top;
+// compute the container scrollTop that places `el` at TOP_GAP from the container's top edge.
+// uses rects relative to the container's current scroll position — accurate even when
+// the offsetParent chain is broken by transforms/sticky/fixed ancestors.
+function destScrollTop(el: HTMLElement, container: HTMLElement): number {
+  const cRect = container.getBoundingClientRect();
+  const eRect = el.getBoundingClientRect();
+  return container.scrollTop + (eRect.top - cRect.top) - TOP_GAP;
 }
 
-function scrollToElement(el: HTMLElement, reduced: boolean) {
-  const behavior: ScrollBehavior = reduced ? "instant" : "smooth";
+// custom rAF tween with fixed duration.
+//
+// chrome's native scrollTo({behavior:"smooth"}) is unusable here — its
+// duration scales with distance, so far jumps take 5+ seconds of slow
+// easing. lazy-load also inserts content mid-animation which shifts the
+// target's position. instead we run our own tween with:
+//   - capped duration regardless of distance (feels snappy on big jumps)
+//   - ease-out cubic for natural deceleration
+//   - per-frame dest re-measurement so lazy-load shifts get absorbed
+//   - scrollTo({behavior:"instant"}) writes (avoids the compositor
+//     tearing/duplication bug seen with raw .scrollTop assignments)
+//   - correction passes after the tween for slow lazy-load batches
+//   - manual scroll cancels the tween mid-flight
+const SCROLL_DURATION_MS = 460;
+const EARLY_CANCEL_TOLERANCE = 3; // ignore the tween's own scroll writes
 
-  // if el was removed from DOM, try to find a fresh copy by its stamped id
-  let target = el;
-  if (!document.contains(target)) {
-    const id = target.dataset.threadmapId;
-    const fresh = id
-      ? document.querySelector<HTMLElement>(`[data-threadmap-id="${id}"]`)
-      : null;
-    if (!fresh) return;
-    target = fresh;
+function scrollContainerTo(container: HTMLElement, el: HTMLElement, reduced: boolean) {
+  const measure = (): number => Math.max(0, destScrollTop(el, container));
+
+  const finalSnap = (): boolean => {
+    if (!document.contains(el)) return true;
+    const dest = measure();
+    if (Math.abs(container.scrollTop - dest) < 2) return true;
+    container.scrollTo({ top: dest, behavior: "instant" as ScrollBehavior });
+    return false;
+  };
+
+  // reduced-motion or tiny distance — just snap and skip the tween
+  const initialDest = measure();
+  const initialDelta = Math.abs(container.scrollTop - initialDest);
+  if (reduced || initialDelta < 8) {
+    finalSnap();
+    runCorrectionPasses(finalSnap);
+    return;
   }
+
+  const start = container.scrollTop;
+  const startTime = performance.now();
+  let lastWritten = start;
+  let cancelled = false;
+
+  // cancel on real user scroll (wheel, touch). our own writes match
+  // lastWritten within a few px so we ignore them.
+  const onUserScroll = () => {
+    if (Math.abs(container.scrollTop - lastWritten) > EARLY_CANCEL_TOLERANCE) {
+      cancelled = true;
+    }
+  };
+  container.addEventListener("scroll", onUserScroll, { passive: true });
+
+  // ease-out cubic — fast start, gentle finish
+  const ease = (t: number) => 1 - Math.pow(1 - t, 3);
+
+  const step = (now: number) => {
+    if (cancelled || !document.contains(el)) {
+      container.removeEventListener("scroll", onUserScroll);
+      return;
+    }
+    const t = Math.min(1, (now - startTime) / SCROLL_DURATION_MS);
+    // re-measure dest every frame — absorbs lazy-load shifts mid-tween
+    const dest = measure();
+    const next = Math.round(start + (dest - start) * ease(t));
+    lastWritten = next;
+    container.scrollTo({ top: next, behavior: "instant" as ScrollBehavior });
+
+    if (t < 1) {
+      requestAnimationFrame(step);
+    } else {
+      container.removeEventListener("scroll", onUserScroll);
+      // post-tween correction: lazy-load that fires after the tween ends
+      // can still shift the target. these passes catch it.
+      runCorrectionPasses(finalSnap);
+    }
+  };
+
+  requestAnimationFrame(step);
+}
+
+function runCorrectionPasses(snap: () => boolean) {
+  setTimeout(() => {
+    if (snap()) return;
+    setTimeout(() => {
+      if (snap()) return;
+      setTimeout(snap, 350);
+    }, 220);
+  }, 120);
+}
+
+// resolve the freshest live dom node for a message. tries (in order):
+//   1. the stored element, if still attached
+//   2. our stamped data-threadmap-id (cheap, may be stripped by react re-renders)
+//   3. the adapter-supplied dom anchor (chatgpt's conversation-turn-N data-testid)
+// returns null if nothing resolves — caller should bail rather than scroll wrong.
+function resolveTarget(msg: ChatMessageRecord): HTMLElement | null {
+  if (document.contains(msg.element)) return msg.element;
+
+  const byId = document.querySelector<HTMLElement>(
+    `[data-threadmap-id="${msg.id}"]`
+  );
+  if (byId) return byId;
+
+  if (msg.domAnchor) {
+    // escape attribute value just in case future anchors contain quotes
+    const safe = msg.domAnchor.replace(/"/g, '\\"');
+    const byAnchor = document.querySelector<HTMLElement>(
+      `[data-testid="${safe}"]`
+    );
+    if (byAnchor) return byAnchor;
+  }
+
+  return null;
+}
+
+function scrollToMessage(msg: ChatMessageRecord, reduced: boolean) {
+  const target = resolveTarget(msg);
+  if (!target) return;
 
   const container = findScrollContainer(target);
   if (container) {
-    // use absolute content offset — stable regardless of current scroll position
-    const dest = offsetFromContainer(target, container) - TOP_GAP;
-    container.scrollTo({ top: Math.max(0, dest), behavior });
+    scrollContainerTo(container, target, reduced);
   } else {
     const eRect = target.getBoundingClientRect();
-    window.scrollTo({ top: Math.max(0, window.scrollY + eRect.top - TOP_GAP), behavior });
+    window.scrollTo({
+      top: Math.max(0, window.scrollY + eRect.top - TOP_GAP),
+      behavior: reduced ? "instant" : "smooth",
+    });
   }
 }
 
@@ -147,14 +247,18 @@ export function Minimap({ adapter, settings }: Props) {
     return () => observer.disconnect();
   }, [visible, markRead]);
 
-  // scroll to a message — suppress observer during chatgpt's lazy-render window
+  // scroll to a message — suppress observer during chatgpt's lazy-render window.
+  // resolve the live dom node here too so the highlight lands on the same
+  // element we're actually scrolling to.
   const handleScrollTo = useCallback(
     (msg: ChatMessageRecord) => {
       suppressRefresh(900);
-      scrollToElement(msg.element, settings.reducedMotion);
-      msg.element.classList.add("threadmap-highlight");
+      const target = resolveTarget(msg);
+      if (!target) return;
+      scrollToMessage(msg, settings.reducedMotion);
+      target.classList.add("threadmap-highlight");
       setTimeout(
-        () => msg.element.classList.remove("threadmap-highlight"),
+        () => target.classList.remove("threadmap-highlight"),
         HIGHLIGHT_DURATION_MS
       );
     },

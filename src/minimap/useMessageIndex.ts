@@ -27,6 +27,11 @@ function buildRecords(
       el.dataset.threadmapOrder = m ? m[1] : String(Date.now() + i);
     }
 
+    // canonical dom anchor — survives react re-renders that drop our stamped
+    // dataset attributes. chatgpt uses conversation-turn-N which is stable
+    // across virtualization and rebuilds.
+    const domAnchor = el.getAttribute("data-testid") ?? undefined;
+
     const rect = el.getBoundingClientRect();
     return {
       id,
@@ -37,6 +42,7 @@ function buildRecords(
       features: adapter.getMessageFeatures(el, text),
       top: rect.top + window.scrollY,
       height: rect.height,
+      domAnchor,
     };
   });
 }
@@ -93,12 +99,42 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
     const records = buildRecords(adapter, root);
 
     // detect navigation to a new conversation — if none of the fresh records
-    // match anything accumulated, the user switched chats, so clear the cache
+    // match anything accumulated (by id OR by stable dom anchor), the user
+    // switched chats, so clear the cache.
     if (accumulatedRef.current.size > 0 && records.length > 0) {
-      const hasOverlap = records.some((r) => accumulatedRef.current.has(r.id));
+      const accAnchors = new Set(
+        Array.from(accumulatedRef.current.values())
+          .map((r) => r.domAnchor)
+          .filter(Boolean) as string[]
+      );
+      const hasOverlap = records.some(
+        (r) =>
+          accumulatedRef.current.has(r.id) ||
+          (r.domAnchor && accAnchors.has(r.domAnchor))
+      );
       if (!hasOverlap) {
         accumulatedRef.current.clear();
         setUnreadIds(new Set());
+      }
+    }
+
+    // re-key any accumulated record whose dom node was rebuilt — react may
+    // drop our stamped dataset attributes, which would produce a duplicate
+    // marker. dedup by stable dom anchor (chatgpt conversation-turn-N).
+    if (records.length > 0) {
+      const anchorToExistingId = new Map<string, string>();
+      for (const [id, r] of accumulatedRef.current) {
+        if (r.domAnchor) anchorToExistingId.set(r.domAnchor, id);
+      }
+      for (const fresh of records) {
+        if (!fresh.domAnchor) continue;
+        const existingId = anchorToExistingId.get(fresh.domAnchor);
+        if (existingId && existingId !== fresh.id) {
+          // re-stamp the live element with the original id so future scans match
+          fresh.element.dataset.threadmapId = existingId;
+          accumulatedRef.current.delete(existingId);
+          fresh.id = existingId;
+        }
       }
     }
 

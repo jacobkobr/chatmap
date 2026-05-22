@@ -25,12 +25,11 @@ export function featureLabels(msg: ChatMessageRecord): string[] {
   return labels;
 }
 
-// css class suffix for marker color based on role + features
-export function markerVariant(msg: ChatMessageRecord): string {
-  if (msg.role === "unknown") return "unknown";
+// css class suffix for marker color — strictly role-based so user vs assistant
+// markers actually alternate. features show up as badges in the preview card,
+// not as separate marker colors.
+export function markerVariant(msg: ChatMessageRecord): "user" | "assistant" | "unknown" {
   if (msg.role === "user") return "user";
-  if (msg.features.includes("code")) return "code";
-  if (msg.features.includes("long-answer")) return "long";
-  if (msg.features.includes("link") || msg.features.includes("source")) return "link";
-  return "assistant";
+  if (msg.role === "assistant") return "assistant";
+  return "unknown";
 }

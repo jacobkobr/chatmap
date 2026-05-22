@@ -100,57 +100,34 @@ function OptionsApp() {
 
       <section className="options-section">
         <h2>markers</h2>
+        <p className="section-hint">
+          one marker per message. images, code, links, and attachments show up
+          as badges inside the hover preview — not as separate ticks.
+        </p>
         <Toggle
-          label="show user messages"
+          label="show your messages"
           checked={settings.showUserMessages}
           onChange={(v) => update({ showUserMessages: v })}
         />
         <Toggle
-          label="show assistant messages"
+          label="show chatgpt responses"
           checked={settings.showAssistantMessages}
           onChange={(v) => update({ showAssistantMessages: v })}
-        />
-        <Toggle
-          label="code blocks"
-          checked={settings.showCodeMarkers}
-          onChange={(v) => update({ showCodeMarkers: v })}
-        />
-        <Toggle
-          label="long answers"
-          checked={settings.showLongAnswerMarkers}
-          onChange={(v) => update({ showLongAnswerMarkers: v })}
-        />
-        <Toggle
-          label="links / sources"
-          checked={settings.showLinkMarkers}
-          onChange={(v) => update({ showLinkMarkers: v })}
-        />
-        <Toggle
-          label="images / attachments"
-          checked={settings.showImageMarkers}
-          onChange={(v) => update({ showImageMarkers: v })}
         />
       </section>
 
       <section className="options-section">
         <h2>appearance</h2>
         <Select
-          label="marker density"
-          value={settings.markerDensity}
-          options={[
-            { value: "compact", label: "compact" },
-            { value: "normal", label: "normal" },
-            { value: "detailed", label: "detailed" },
-          ]}
-          onChange={(v) => update({ markerDensity: v })}
-        />
-        <Select
           label="accent color"
           value={settings.accentColor}
           options={[
-            { value: "neutral", label: "neutral (gray)" },
-            { value: "blue-purple", label: "blue / purple" },
-            { value: "chatgpt", label: "chatgpt green" },
+            { value: "gray", label: "gray (default)" },
+            { value: "blue", label: "blue" },
+            { value: "purple", label: "purple" },
+            { value: "green", label: "green" },
+            { value: "orange", label: "orange" },
+            { value: "pink", label: "pink" },
           ]}
           onChange={(v) => update({ accentColor: v })}
         />
