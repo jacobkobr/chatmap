@@ -59,92 +59,114 @@ function destScrollTop(el: HTMLElement, container: HTMLElement): number {
   return container.scrollTop + (eRect.top - cRect.top) - TOP_GAP;
 }
 
-// custom rAF tween with fixed duration.
+// rAF tween with per-frame target re-resolution and a follow-up correction
+// phase. solves three problems chatgpt's lazy-loading conversation creates:
 //
-// chrome's native scrollTo({behavior:"smooth"}) is unusable here — its
-// duration scales with distance, so far jumps take 5+ seconds of slow
-// easing. lazy-load also inserts content mid-animation which shifts the
-// target's position. instead we run our own tween with:
-//   - capped duration regardless of distance (feels snappy on big jumps)
-//   - ease-out cubic for natural deceleration
-//   - per-frame dest re-measurement so lazy-load shifts get absorbed
-//   - scrollTo({behavior:"instant"}) writes (avoids the compositor
-//     tearing/duplication bug seen with raw .scrollTop assignments)
-//   - correction passes after the tween for slow lazy-load batches
-//   - manual scroll cancels the tween mid-flight
-const SCROLL_DURATION_MS = 460;
-const EARLY_CANCEL_TOLERANCE = 3; // ignore the tween's own scroll writes
+//   1. native scrollTo({behavior:"smooth"}) scales duration with distance —
+//      a 10k px jump takes 5+ seconds and feels broken. we cap the tween at
+//      a fixed duration regardless of distance.
+//
+//   2. lazy-load inserts content mid-flight and shifts the target. we
+//      re-measure dest every frame, AND re-resolve the dom node every frame
+//      (since react may rebuild the turn entirely, detaching the original
+//      element). previous implementations bailed on detached elements; that
+//      was the "click multiple times to get closer" bug.
+//
+//   3. lazy-load batches can arrive after the tween ends. a critically-
+//      damped follow-up phase keeps gently snapping to dest for up to 1.5s
+//      until we're stable for ~200ms, then exits.
+//
+// raw .scrollTop writes also tear the compositor (frame duplication bug),
+// so every write goes through scrollTo({behavior:"instant"}).
+const TWEEN_MS = 460;
+const FOLLOWUP_MS = 1500;
+const STABLE_FRAMES = 12;       // ~200ms at 60fps before we declare arrival
+const CORRECTION_ALPHA = 0.28;  // fraction of remaining gap closed per frame
+const ARRIVAL_TOLERANCE = 1.5;
+const CANCEL_TOLERANCE = 3;     // px diff that distinguishes user scroll from our writes
 
-function scrollContainerTo(container: HTMLElement, el: HTMLElement, reduced: boolean) {
-  const measure = (): number => Math.max(0, destScrollTop(el, container));
+function tweenContainerToMessage(
+  container: HTMLElement,
+  msg: ChatMessageRecord,
+  reduced: boolean
+) {
+  const initial = resolveTarget(msg);
+  if (!initial) return;
 
-  const finalSnap = (): boolean => {
-    if (!document.contains(el)) return true;
-    const dest = measure();
-    if (Math.abs(container.scrollTop - dest) < 2) return true;
-    container.scrollTo({ top: dest, behavior: "instant" as ScrollBehavior });
-    return false;
-  };
-
-  // reduced-motion or tiny distance — just snap and skip the tween
-  const initialDest = measure();
+  const initialDest = Math.max(0, destScrollTop(initial, container));
   const initialDelta = Math.abs(container.scrollTop - initialDest);
+
   if (reduced || initialDelta < 8) {
-    finalSnap();
-    runCorrectionPasses(finalSnap);
+    container.scrollTo({ top: initialDest, behavior: "instant" as ScrollBehavior });
     return;
   }
 
-  const start = container.scrollTop;
+  const startScrollTop = container.scrollTop;
   const startTime = performance.now();
-  let lastWritten = start;
+  let lastWritten = startScrollTop;
   let cancelled = false;
+  let stableFrames = 0;
+  let cachedTarget: HTMLElement | null = initial;
 
-  // cancel on real user scroll (wheel, touch). our own writes match
-  // lastWritten within a few px so we ignore them.
+  const resolveCached = (): HTMLElement | null => {
+    if (cachedTarget && document.contains(cachedTarget)) return cachedTarget;
+    cachedTarget = resolveTarget(msg);
+    return cachedTarget;
+  };
+
   const onUserScroll = () => {
-    if (Math.abs(container.scrollTop - lastWritten) > EARLY_CANCEL_TOLERANCE) {
+    if (Math.abs(container.scrollTop - lastWritten) > CANCEL_TOLERANCE) {
       cancelled = true;
     }
   };
   container.addEventListener("scroll", onUserScroll, { passive: true });
+  const cleanup = () => container.removeEventListener("scroll", onUserScroll);
 
-  // ease-out cubic — fast start, gentle finish
   const ease = (t: number) => 1 - Math.pow(1 - t, 3);
 
-  const step = (now: number) => {
-    if (cancelled || !document.contains(el)) {
-      container.removeEventListener("scroll", onUserScroll);
+  const tick = (now: number) => {
+    if (cancelled) { cleanup(); return; }
+
+    const elapsed = now - startTime;
+    const inTween = elapsed < TWEEN_MS;
+    const inFollowup = elapsed < TWEEN_MS + FOLLOWUP_MS;
+
+    const target = resolveCached();
+    if (!target) {
+      if (!inFollowup) { cleanup(); return; }
+      requestAnimationFrame(tick);
       return;
     }
-    const t = Math.min(1, (now - startTime) / SCROLL_DURATION_MS);
-    // re-measure dest every frame — absorbs lazy-load shifts mid-tween
-    const dest = measure();
-    const next = Math.round(start + (dest - start) * ease(t));
+
+    const dest = Math.max(0, destScrollTop(target, container));
+    let next: number;
+
+    if (inTween) {
+      const t = elapsed / TWEEN_MS;
+      next = Math.round(startScrollTop + (dest - startScrollTop) * ease(t));
+    } else if (inFollowup) {
+      const delta = dest - container.scrollTop;
+      if (Math.abs(delta) < ARRIVAL_TOLERANCE) {
+        stableFrames++;
+        if (stableFrames >= STABLE_FRAMES) { cleanup(); return; }
+        requestAnimationFrame(tick);
+        return;
+      }
+      stableFrames = 0;
+      next = Math.round(container.scrollTop + delta * CORRECTION_ALPHA);
+    } else {
+      lastWritten = dest;
+      container.scrollTo({ top: dest, behavior: "instant" as ScrollBehavior });
+      cleanup();
+      return;
+    }
+
     lastWritten = next;
     container.scrollTo({ top: next, behavior: "instant" as ScrollBehavior });
-
-    if (t < 1) {
-      requestAnimationFrame(step);
-    } else {
-      container.removeEventListener("scroll", onUserScroll);
-      // post-tween correction: lazy-load that fires after the tween ends
-      // can still shift the target. these passes catch it.
-      runCorrectionPasses(finalSnap);
-    }
+    requestAnimationFrame(tick);
   };
 
-  requestAnimationFrame(step);
-}
-
-function runCorrectionPasses(snap: () => boolean) {
-  setTimeout(() => {
-    if (snap()) return;
-    setTimeout(() => {
-      if (snap()) return;
-      setTimeout(snap, 350);
-    }, 220);
-  }, 120);
+  requestAnimationFrame(tick);
 }
 
 // resolve the freshest live dom node for a message. tries (in order):
@@ -178,7 +200,7 @@ function scrollToMessage(msg: ChatMessageRecord, reduced: boolean) {
 
   const container = findScrollContainer(target);
   if (container) {
-    scrollContainerTo(container, target, reduced);
+    tweenContainerToMessage(container, msg, reduced);
   } else {
     const eRect = target.getBoundingClientRect();
     window.scrollTo({
@@ -216,35 +238,68 @@ export function Minimap({ adapter, settings }: Props) {
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  // IntersectionObserver — active tick tracks the topmost visible message
+  // active tick tracks the message the user is actually reading.
+  // intersection observer was unreliable here — a long assistant turn can
+  // stay "intersecting" the reading zone for the entire scroll past it,
+  // so the active marker would stick to a turn the user has already left.
+  // instead we recompute on every scroll frame: active = last message whose
+  // top edge is at or above the reading line (about 30% from viewport top).
+  // also marks anything currently on-screen as read.
   useEffect(() => {
-    if (visible.length === 0) return;
+    if (visible.length === 0) {
+      setActiveIdx(-1);
+      return;
+    }
 
-    const currentlyVisible = new Set<string>();
+    const firstLive = resolveTarget(visible[0]);
+    const container = firstLive ? findScrollContainer(firstLive) : null;
+    const scrollTarget: HTMLElement | Window = container ?? window;
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          const msg = visible.find((m) => m.element === entry.target);
-          if (!msg) return;
-          if (entry.isIntersecting) {
-            currentlyVisible.add(msg.id);
-            markRead(msg.id);
-          } else {
-            currentlyVisible.delete(msg.id);
-          }
-        });
+    let raf = 0;
+    const compute = () => {
+      raf = 0;
+      const vh = window.innerHeight;
+      const readingLine = vh * 0.30;
+      let active = -1;
+      for (let i = 0; i < visible.length; i++) {
+        const el = resolveTarget(visible[i]);
+        if (!el || !document.contains(el)) continue;
+        const r = el.getBoundingClientRect();
+        if (r.bottom > 0 && r.top < vh) markRead(visible[i].id);
+        if (r.top <= readingLine) active = i;
+      }
 
-        // active = topmost message currently intersecting the reading zone
-        const idx = visible.findIndex((m) => currentlyVisible.has(m.id));
-        if (idx !== -1) setActiveIdx(idx);
-      },
-      // reading zone: top 5% to 45% of viewport
-      { threshold: 0.1, rootMargin: "-5% 0px -55% 0px" }
-    );
+      // scroll-edge overrides — when the conversation is scrolled all the
+      // way to the bottom, the user is reading the latest message even if
+      // a short cluster of recent messages all sit above the reading line.
+      // (without this, the reading-line walk would pick the topmost of the
+      // cluster instead of the most recent.) likewise for the very top.
+      if (visible.length > 0) {
+        const sTop = container ? container.scrollTop : window.scrollY;
+        const sHeight = container
+          ? container.scrollHeight
+          : document.documentElement.scrollHeight;
+        const cHeight = container ? container.clientHeight : vh;
+        const remaining = sHeight - sTop - cHeight;
+        if (remaining < 24) active = visible.length - 1;
+        else if (sTop < 24) active = 0;
+      }
 
-    visible.forEach((m) => observer.observe(m.element));
-    return () => observer.disconnect();
+      setActiveIdx(active);
+    };
+
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(compute);
+    };
+
+    compute();
+    scrollTarget.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll, { passive: true });
+    return () => {
+      scrollTarget.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, [visible, markRead]);
 
   // scroll to a message — suppress observer during chatgpt's lazy-render window.
