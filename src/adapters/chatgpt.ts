@@ -76,11 +76,20 @@ const chatgptAdapter: ChatSiteAdapter = {
   },
 
   getMessageText(element: HTMLElement): string {
-    const prose =
-      element.querySelector<HTMLElement>(
-        "[class*='prose'], .markdown, [class*='markdown']"
-      ) ?? element;
-    return safeTextContent(prose);
+    // prefer prose / markdown container — clean assistant body, no role label
+    const prose = element.querySelector<HTMLElement>(
+      "[class*='prose'], .markdown, [class*='markdown']"
+    );
+    if (prose) return safeTextContent(prose);
+
+    // user messages don't use prose; the author-role node itself holds the
+    // message body without the "You said:" label that wraps it
+    const authored = element.querySelector<HTMLElement>(
+      "[data-message-author-role='user'], [data-message-author-role='assistant']"
+    );
+    if (authored) return safeTextContent(authored);
+
+    return safeTextContent(element);
   },
 
   getMessageFeatures(element: HTMLElement, text: string): ChatMessageFeature[] {

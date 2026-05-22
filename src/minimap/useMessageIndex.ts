@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { ChatMessageRecord } from "../shared/types";
 import type { ChatSiteAdapter } from "../adapters/types";
-import { debounce, generateId, safeTextContent } from "../shared/utils";
+import { debounce, generateId, cleanPreviewText } from "../shared/utils";
 import { PREVIEW_CHAR_LIMIT, DEBOUNCE_MS } from "../shared/constants";
 
 function buildRecords(
@@ -32,12 +32,17 @@ function buildRecords(
     // across virtualization and rebuilds.
     const domAnchor = el.getAttribute("data-testid") ?? undefined;
 
+    // use adapter.getMessageText (targets prose/markdown container) for the
+    // preview so we skip the surrounding role labels and reasoning chips,
+    // then run a regex pass for anything that still leaks through.
+    const preview = cleanPreviewText(text).slice(0, PREVIEW_CHAR_LIMIT);
+
     const rect = el.getBoundingClientRect();
     return {
       id,
       role: adapter.getMessageRole(el),
       element: el,
-      textPreview: safeTextContent(el).slice(0, PREVIEW_CHAR_LIMIT),
+      textPreview: preview,
       fullTextLength: text.length,
       features: adapter.getMessageFeatures(el, text),
       top: rect.top + window.scrollY,
