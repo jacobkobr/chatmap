@@ -13,42 +13,37 @@ interface Props {
 
 const TOP_GAP = 110; // px gap from viewport top after scroll
 
-// find the real scroll container — collect ALL scrollable ancestors and pick the
-// one with the largest scroll range, which is always the true conversation scroller.
-// intermediate overflow wrappers have smaller ranges and are skipped this way.
+// find chatgpt's scroll container.
+// current chatgpt uses [data-scroll-root] — confirmed via devtools (scrollHeight ~41k).
+// fall back to largest-scroll-range ancestor for future dom changes.
 function findScrollContainer(el: HTMLElement): HTMLElement | null {
-  // try the react-scroll-to-bottom child directly — chatgpt's actual scroller
-  // is the first div child of the rtb root
+  // current chatgpt dom
+  const byAttr = document.querySelector<HTMLElement>("[data-scroll-root]");
+  if (byAttr && byAttr.scrollHeight > byAttr.clientHeight + 4) return byAttr;
+
+  // legacy: react-scroll-to-bottom first child
   const rtb = document.querySelector<HTMLElement>("[class*='react-scroll-to-bottom']");
   if (rtb) {
     for (const child of rtb.children) {
       if (child instanceof HTMLElement) {
         const s = getComputedStyle(child);
         if ((s.overflowY === "auto" || s.overflowY === "scroll") &&
-            child.scrollHeight > child.clientHeight + 4) {
-          return child;
-        }
+            child.scrollHeight > child.clientHeight + 4) return child;
       }
     }
   }
 
-  // collect every scrollable ancestor of el
+  // fallback: collect all scrollable ancestors, pick the one with the largest range
   const candidates: HTMLElement[] = [];
   let node: HTMLElement | null = el.parentElement;
   while (node && node !== document.body) {
     const s = getComputedStyle(node);
     if ((s.overflowY === "auto" || s.overflowY === "scroll") &&
-        node.scrollHeight > node.clientHeight + 4) {
-      candidates.push(node);
-    }
+        node.scrollHeight > node.clientHeight + 4) candidates.push(node);
     node = node.parentElement;
   }
-
   if (candidates.length > 0) {
-    // largest scroll range = the actual conversation container (not a wrapper)
-    candidates.sort(
-      (a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight)
-    );
+    candidates.sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight));
     return candidates[0];
   }
 
