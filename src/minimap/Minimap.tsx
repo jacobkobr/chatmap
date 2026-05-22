@@ -604,7 +604,26 @@ export function Minimap({ adapter, settings }: Props) {
     const compute = () => {
       raf = 0;
       const vh = window.innerHeight;
-      const readingLine = TOP_GAP + Math.min(120, vh * 0.15);
+
+      // reading line slides as the user approaches the scroll bottom.
+      // most of the time it sits just below the sticky header (where eyes
+      // track new content). only in the last ~200px of scrollable range
+      // does it lerp toward the bottom of the viewport, so when the user
+      // can't scroll any further the last messages win the highlight.
+      // previously the line was pinned to the top and long earlier
+      // messages kept hijacking the active state at scroll-bottom.
+      const baseLine = TOP_GAP + Math.min(120, vh * 0.15);
+      const bottomLine = vh - 100;
+      let readingLine = baseLine;
+      if (container) {
+        const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+        if (maxScroll > 0) {
+          const distFromBottom = maxScroll - container.scrollTop;
+          const lerp = Math.max(0, Math.min(1, 1 - distFromBottom / 200));
+          readingLine = baseLine + (bottomLine - baseLine) * lerp;
+        }
+      }
+
       let active = -1;
       let bestScore = -Infinity;
 
