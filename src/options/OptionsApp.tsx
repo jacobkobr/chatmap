@@ -262,11 +262,17 @@ function OptionsApp() {
         <div className="section-title">Shortcuts</div>
 
         <div className="kb-row">
-          <div className="kb-row-label">Edit bookmark</div>
-          <ModifierEditor
-            bind={settings.keybinds.editBookmark}
-            onChange={(next) => updateBind("editBookmark", next)}
-          />
+          <div className="kb-row-label">
+            Edit bookmark
+            <span className="kb-row-hint">click a marker while holding</span>
+          </div>
+          <div className="kb-row-binding">
+            <ModifierEditor
+              bind={settings.keybinds.editBookmark}
+              onChange={(next) => updateBind("editBookmark", next)}
+            />
+            <span className="kb-row-suffix">+ Click</span>
+          </div>
         </div>
 
         <div className="kb-row">
@@ -283,6 +289,20 @@ function OptionsApp() {
             bind={settings.keybinds.prevImportant}
             onChange={(next) => updateBind("prevImportant", next)}
           />
+        </div>
+
+        <div className="kb-row">
+          <div className="kb-row-label">
+            Scroll between markers
+            <span className="kb-row-hint">scroll the wheel while holding</span>
+          </div>
+          <div className="kb-row-binding">
+            <ModifierEditor
+              bind={settings.keybinds.scrollNav}
+              onChange={(next) => updateBind("scrollNav", next)}
+            />
+            <span className="kb-row-suffix">+ Scroll</span>
+          </div>
         </div>
 
         <button type="button" className="reset-btn" onClick={resetKeybinds}>

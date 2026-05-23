@@ -14,6 +14,7 @@ import { useBookmarks } from "./useBookmarks";
 import { isMarkerVisible } from "./markerClassifier";
 import {
   bookmarkKey,
+  legacyBookmarkKey,
   getConversationId,
   setBookmark,
   deleteBookmark,
@@ -348,6 +349,16 @@ export function Minimap({ adapter, settings }: Props) {
   const [isDesktop, setIsDesktop] = useState(
     () => window.innerWidth >= DESKTOP_MIN_WIDTH
   );
+  const [railRight, setRailRight] = useState(52);
+  // index of the marker the user has just navigated to (wheel / click /
+  // keybind). drives the floating callout that animates out of the
+  // active marker. -1 = no callout shown.
+  const [navCalloutIdx, setNavCalloutIdx] = useState(-1);
+  const navCalloutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // last marker idx reached via alt+shift+scroll. used as the anchor for
+  // the next wheel event so chained scrolls advance reliably even before
+  // activeIdx has caught up to the in-flight smooth scroll.
+  const wheelNavRef = useRef<number | null>(null);
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // last bookmark idx visited via keybind nav. lets us advance/retreat in
@@ -382,8 +393,12 @@ export function Minimap({ adapter, settings }: Props) {
   // the render loop since the lookup is O(1).
   const bookmarkFor = useCallback(
     (msg: ChatMessageRecord): MessageBookmark | undefined => {
-      const k = bookmarkKey(convId, msg.domAnchor);
-      return k ? bookmarks[k] : undefined;
+      const k = bookmarkKey(convId, msg.domAnchor, msg.chatgptMsgId);
+      if (k && bookmarks[k]) return bookmarks[k];
+      // fall back to the legacy dom-anchor key so bookmarks saved before
+      // the msg-uuid preference still resolve.
+      const legacy = legacyBookmarkKey(convId, msg.domAnchor);
+      return legacy ? bookmarks[legacy] : undefined;
     },
     [bookmarks, convId]
   );
@@ -393,6 +408,97 @@ export function Minimap({ adapter, settings }: Props) {
     if (hoverIdx >= visible.length) setHoverIdx(-1);
     if (editorIdx >= visible.length) setEditorIdx(-1);
   }, [visible.length, hoverIdx, editorIdx]);
+
+  // shift the rail left when chatgpt opens a right-docked panel (expanded
+  // thoughts, canvas, etc.). identified purely by geometry — chatgpt's
+  // `#stage-slideover-sidebar` is the LEFT chat list, not the right one.
+  //
+  // mounting order is the tricky part: panel inserts at full width and
+  // animates in via transform/translate, so its visible left/right shift
+  // every frame WITHOUT firing DOM mutations. MutationObserver alone
+  // misses the slide-in. fix:
+  //   1. on every MO event, recompute (catches insertion/removal)
+  //   2. when a panel is found, ResizeObserver tracks its size changes
+  //   3. for transform-based animation (no size change), rAF-poll for the
+  //      brief window after any mutation. cheap and bounded.
+  useEffect(() => {
+    const DEFAULT_RIGHT = 52;
+    const GAP = 28;
+    let currentPanel: HTMLElement | null = null;
+    let ro: ResizeObserver | null = null;
+    let rafId: number | null = null;
+    let rafEnd = 0;
+
+    function findPanel(): HTMLElement | null {
+      const vw = window.innerWidth;
+      const main = document.querySelector<HTMLElement>("main");
+      if (!main) return null;
+      const mainR = main.getBoundingClientRect();
+      const candidates = document.querySelectorAll<HTMLElement>("aside, div");
+      for (const el of candidates) {
+        const r = el.getBoundingClientRect();
+        // must visibly reach the right edge of the viewport
+        if (r.right < vw - 8) continue;
+        // must be off main's right edge — excludes the chat column itself
+        if (r.left < mainR.right - 8) continue;
+        // ignore zero-area placeholders, but allow narrow widths so we
+        // catch the panel during its slide-in animation
+        if (r.width < 1 || r.width > 900) continue;
+        if (r.height < 80) continue;
+        if (r.top > 220) continue;
+        return el;
+      }
+      return null;
+    }
+
+    function apply() {
+      const panel = findPanel();
+      if (panel !== currentPanel) {
+        if (ro) ro.disconnect();
+        currentPanel = panel;
+        if (panel) {
+          ro = new ResizeObserver(apply);
+          ro.observe(panel);
+        } else {
+          ro = null;
+        }
+      }
+      if (!panel) {
+        setRailRight(DEFAULT_RIGHT);
+        return;
+      }
+      const r = panel.getBoundingClientRect();
+      setRailRight(Math.max(DEFAULT_RIGHT, window.innerWidth - r.left + GAP));
+    }
+
+    // run apply() every frame for the next `durMs` ms. used to catch
+    // transform-based slide-ins that don't fire size/dom events.
+    function pulse(durMs: number) {
+      const now = performance.now();
+      rafEnd = Math.max(rafEnd, now + durMs);
+      if (rafId !== null) return;
+      const tick = () => {
+        apply();
+        if (performance.now() < rafEnd) {
+          rafId = requestAnimationFrame(tick);
+        } else {
+          rafId = null;
+        }
+      };
+      rafId = requestAnimationFrame(tick);
+    }
+
+    apply();
+    const mo = new MutationObserver(() => pulse(450));
+    mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
+    window.addEventListener("resize", apply);
+    return () => {
+      mo.disconnect();
+      if (ro) ro.disconnect();
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", apply);
+    };
+  }, []);
 
   // decide whether to surface the scan offer. shown when:
   //   - the cache load attempt completed
@@ -694,6 +800,16 @@ export function Minimap({ adapter, settings }: Props) {
     };
   }, [visible, markRead]);
 
+  // briefly show the callout next to a marker the user just jumped to.
+  // re-keyed by idx so the bubble animation replays on each step. dismiss
+  // timer is reset on every call so a burst of wheel-navs keeps it visible
+  // until the user pauses.
+  const showNavCallout = useCallback((idx: number) => {
+    if (navCalloutTimer.current) clearTimeout(navCalloutTimer.current);
+    setNavCalloutIdx(idx);
+    navCalloutTimer.current = setTimeout(() => setNavCalloutIdx(-1), 1400);
+  }, []);
+
   // raw scroll + highlight without any nav-state side effects. used by
   // both the regular marker click path and the keybind jump path. when the
   // target is virtualized out (cache-only marker), the highlight is applied
@@ -702,6 +818,7 @@ export function Minimap({ adapter, settings }: Props) {
     (msg: ChatMessageRecord) => {
       suppressRefresh(900);
       const idx = visible.indexOf(msg);
+      if (idx >= 0) showNavCallout(idx);
       scrollToMessage(
         msg,
         settings.reducedMotion,
@@ -742,7 +859,7 @@ export function Minimap({ adapter, settings }: Props) {
       };
       setTimeout(poll, 240);
     },
-    [suppressRefresh, settings.reducedMotion, visible]
+    [suppressRefresh, settings.reducedMotion, visible, showNavCallout]
   );
 
   // marker click — same scroll but resets the keybind-nav anchor so the
@@ -750,6 +867,7 @@ export function Minimap({ adapter, settings }: Props) {
   const handleScrollTo = useCallback(
     (msg: ChatMessageRecord) => {
       lastNavIdxRef.current = null;
+      wheelNavRef.current = null;
       performNavigate(msg);
     },
     [performNavigate]
@@ -763,16 +881,22 @@ export function Minimap({ adapter, settings }: Props) {
   }, []);
 
   // persist bookmark changes. drops the bookmark entirely if no fields
-  // (color/name/note) were provided — empty bookmark = remove.
+  // (color/name/note) were provided — empty bookmark = remove. uses the
+  // msg-uuid-preferred key so bookmarks save even for markers the user
+  // hasn't scrolled to yet (api-only records have no domAnchor).
   const handleSaveBookmark = useCallback(
     async (msg: ChatMessageRecord, patch: MessageBookmark) => {
-      const k = bookmarkKey(convId, msg.domAnchor);
+      const k = bookmarkKey(convId, msg.domAnchor, msg.chatgptMsgId);
       if (!k) {
         setEditorIdx(-1);
         return;
       }
       if (!patch.color && !patch.name && !patch.note) {
         await deleteBookmark(k);
+        // also remove any legacy dom-anchor-keyed entry so the bookmark
+        // doesn't ghost-resurrect on the next refresh
+        const legacy = legacyBookmarkKey(convId, msg.domAnchor);
+        if (legacy && legacy !== k) await deleteBookmark(legacy);
       } else {
         await setBookmark(k, patch);
       }
@@ -783,8 +907,12 @@ export function Minimap({ adapter, settings }: Props) {
 
   const handleDeleteBookmark = useCallback(
     async (msg: ChatMessageRecord) => {
-      const k = bookmarkKey(convId, msg.domAnchor);
+      const k = bookmarkKey(convId, msg.domAnchor, msg.chatgptMsgId);
       if (k) await deleteBookmark(k);
+      // also purge the legacy key in case the bookmark predates the
+      // msg-uuid migration
+      const legacy = legacyBookmarkKey(convId, msg.domAnchor);
+      if (legacy && legacy !== k) await deleteBookmark(legacy);
       setEditorIdx(-1);
     },
     [convId]
@@ -859,6 +987,45 @@ export function Minimap({ adapter, settings }: Props) {
     return () => document.removeEventListener("keydown", onKey);
   }, [visible, activeIdx, bookmarkFor, settings.keybinds, performNavigate]);
 
+  // alt+shift+scroll (modifier-only) — step through every visible marker in
+  // rail order. one navigation per wheel event with a short cooldown so a
+  // trackpad burst doesn't fly past the chat. independent of bookmark nav.
+  useEffect(() => {
+    const { scrollNav } = settings.keybinds;
+    if (!scrollNav) return;
+    if (visible.length === 0) return;
+    if (!scrollNav.altKey && !scrollNav.shiftKey && !scrollNav.ctrlKey && !scrollNav.metaKey) {
+      return;
+    }
+    let lastFire = 0;
+
+    function onWheel(e: WheelEvent) {
+      if (!matchesKeybind(e, scrollNav, false)) return;
+      e.preventDefault();
+      const now = Date.now();
+      if (now - lastFire < 160) return;
+      // smooth-scroll lag means activeIdx hasn't caught up by the next
+      // wheel event; chain off our last wheel target when it's fresh.
+      const baseIdx =
+        wheelNavRef.current !== null && now - lastFire < 1500
+          ? wheelNavRef.current
+          : activeIdx;
+      lastFire = now;
+      const dir: 1 | -1 = e.deltaY > 0 ? 1 : -1;
+      let idx: number;
+      if (dir > 0) {
+        idx = baseIdx < 0 || baseIdx >= visible.length - 1 ? 0 : baseIdx + 1;
+      } else {
+        idx = baseIdx <= 0 ? visible.length - 1 : baseIdx - 1;
+      }
+      wheelNavRef.current = idx;
+      if (visible[idx]) performNavigate(visible[idx]);
+    }
+
+    window.addEventListener("wheel", onWheel, { passive: false });
+    return () => window.removeEventListener("wheel", onWheel);
+  }, [visible, activeIdx, settings.keybinds, performNavigate]);
+
   if (!isDesktop) return null;
 
   function expand() {
@@ -905,6 +1072,21 @@ export function Minimap({ adapter, settings }: Props) {
     return -1;
   })();
 
+  // brief label for the nav callout — bookmark name when set, otherwise
+  // the first sentence (or first 48 chars) of the preview text.
+  function navCalloutLabel(msg: ChatMessageRecord): string {
+    const bm = bookmarkFor(msg);
+    if (bm?.name) return bm.name;
+    const text = (msg.textPreview || "").trim();
+    if (!text) return msg.role === "user" ? "Your message" : "ChatGPT";
+    const sentenceEnd = text.search(/[.!?\n]/);
+    const sentence =
+      sentenceEnd > 4 && sentenceEnd < 80
+        ? text.slice(0, sentenceEnd)
+        : text.slice(0, 48);
+    return sentence.length < text.length ? `${sentence}…` : sentence;
+  }
+
   return (
     <>
       {showScanOffer && (
@@ -917,7 +1099,7 @@ export function Minimap({ adapter, settings }: Props) {
       )}
       <div
       className={`rail${expanded ? " rail--expanded" : ""}`}
-      style={{ height: `${height}px` }}
+      style={{ height: `${height}px`, right: `${railRight}px` }}
       onMouseEnter={expand}
       onMouseLeave={scheduleCollapse}
       aria-label="conversation minimap"
@@ -963,8 +1145,29 @@ export function Minimap({ adapter, settings }: Props) {
           );
         })}
 
+        {navCalloutIdx !== -1 &&
+          visible[navCalloutIdx] &&
+          hoverIdx === -1 &&
+          editorIdx === -1 && (
+            <div
+              key={`nav-${visible[navCalloutIdx].id}`}
+              className={`nav-callout nav-callout--${visible[navCalloutIdx].role}`}
+              style={{
+                top: `${
+                  visible.length <= 1
+                    ? 50
+                    : (navCalloutIdx / (visible.length - 1)) * 92 + 4
+                }%`,
+              }}
+              aria-hidden="true"
+            >
+              {navCalloutLabel(visible[navCalloutIdx])}
+            </div>
+          )}
+
         {hoverIdx !== -1 && visible[hoverIdx] && editorIdx === -1 && (
           <div
+            key={visible[hoverIdx].id}
             className="rail-preview"
             style={{
               top: `${

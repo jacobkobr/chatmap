@@ -10,9 +10,26 @@ export function getConversationId(): string | null {
   return m ? m[1] : null;
 }
 
-// stable address for a bookmark: conv id + the adapter's dom anchor
-// (chatgpt: conversation-turn-N). returns null if either is missing.
+// stable address for a bookmark. prefers the chatgpt msg uuid (canonical,
+// returned by the api and survives any turn renumbering); falls back to
+// the dom anchor (conversation-turn-N) when the msg uuid isn't known.
+// returns null when convId and both anchors are missing — that's a brand
+// new chat with no addressable turn yet.
 export function bookmarkKey(
+  convId: string | null,
+  domAnchor: string | undefined,
+  chatgptMsgId?: string
+): string | null {
+  if (!convId) return null;
+  const anchor = chatgptMsgId || domAnchor;
+  if (!anchor) return null;
+  return `${convId}|${anchor}`;
+}
+
+// legacy lookup key for bookmarks that were saved before the msg-uuid
+// preference landed. checked as a fallback in the rail's bookmark lookup
+// so older marks keyed by conversation-turn-N still resolve.
+export function legacyBookmarkKey(
   convId: string | null,
   domAnchor: string | undefined
 ): string | null {
