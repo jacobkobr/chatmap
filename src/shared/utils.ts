@@ -36,6 +36,32 @@ export function cleanPreviewText(raw: string): string {
     t = t.trim();
     if (t === before) break;
   }
+  return stripMarkdown(t).trim();
+}
+
+// strips markdown syntax that leaks through when the source is raw text
+// (api-loaded messages). dom-walked text is already rendered to plain
+// by the browser so these regexes are no-ops on that path.
+function stripMarkdown(t: string): string {
+  // images: ![alt](url) — drop entirely; alt text is usually noise
+  t = t.replace(/!\[[^\]]*\]\([^)]*\)/g, "");
+  // links: [text](url) → text
+  t = t.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+  // code fences (keep content, drop the fence line)
+  t = t.replace(/```[^\n]*\n?/g, "");
+  // inline code: `text`
+  t = t.replace(/`([^`]+)`/g, "$1");
+  // emphasis — longest delimiters first so ** isn't consumed by the * pass
+  t = t.replace(/\*\*([^*]+)\*\*/g, "$1");
+  t = t.replace(/__([^_]+)__/g, "$1");
+  t = t.replace(/\*([^*\n]+)\*/g, "$1");
+  t = t.replace(/(?<!\w)_([^_\n]+)_(?!\w)/g, "$1");
+  t = t.replace(/~~([^~]+)~~/g, "$1");
+  // line-leading syntax: headings, blockquotes, list bullets
+  t = t.replace(/^#{1,6}\s+/gm, "");
+  t = t.replace(/^>\s+/gm, "");
+  t = t.replace(/^[-*+]\s+/gm, "");
+  t = t.replace(/^\d+\.\s+/gm, "");
   return t;
 }
 
