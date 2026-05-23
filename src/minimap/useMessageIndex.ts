@@ -1,5 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { ChatMessageRecord, ConvCache } from "../shared/types";
+import type {
+  ChatMessageRecord,
+  ConvCache,
+  ChatLoadMode,
+} from "../shared/types";
 import type { ChatSiteAdapter } from "../adapters/types";
 import { debounce, generateId, cleanPreviewText } from "../shared/utils";
 import { PREVIEW_CHAR_LIMIT, DEBOUNCE_MS } from "../shared/constants";
@@ -34,6 +38,12 @@ function buildRecords(
     // across virtualization and rebuilds.
     const domAnchor = el.getAttribute("data-testid") ?? undefined;
 
+    // chatgpt's internal message uuid lives on the inner author-role node
+    // (data-message-id). this is the same id the backend api returns, so
+    // it's the canonical key for matching api-seeded records to live dom.
+    const inner = el.querySelector<HTMLElement>("[data-message-author-role]");
+    const chatgptMsgId = inner?.getAttribute("data-message-id") ?? undefined;
+
     // use adapter.getMessageText (targets prose/markdown container) for the
     // preview so we skip the surrounding role labels and reasoning chips,
     // then run a regex pass for anything that still leaks through.
@@ -52,6 +62,7 @@ function buildRecords(
       top: rect.top + window.scrollY,
       height: rect.height,
       domAnchor,
+      chatgptMsgId,
       order,
     };
   });
@@ -72,7 +83,10 @@ function isNearBottom(): boolean {
   return document.documentElement.scrollHeight - window.scrollY - window.innerHeight < 300;
 }
 
-export function useMessageIndex(adapter: ChatSiteAdapter | null) {
+export function useMessageIndex(
+  adapter: ChatSiteAdapter | null,
+  chatLoadMode: ChatLoadMode = "scan"
+) {
   const [messages, setMessages] = useState<ChatMessageRecord[]>([]);
   const [scrollHeight, setScrollHeight] = useState(1);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -128,17 +142,20 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
       setMessages([]);
 
       if (currentConvId) {
-        loadCache(currentConvId).then((cache) => {
-          // user may have navigated away again before this resolved
+        const seedFromCache = (cache: ConvCache | null) => {
           if (convIdRef.current !== currentConvId) return;
           if (cache && cache.markers.length > 0) {
-            // dedup by domAnchor in case live records already landed
+            // dedup by domAnchor / chatgptMsgId in case live or api records
+            // already landed
             const existingAnchors = new Set<string>();
+            const existingMsgIds = new Set<string>();
             for (const r of accumulatedRef.current.values()) {
               if (r.domAnchor) existingAnchors.add(r.domAnchor);
+              if (r.chatgptMsgId) existingMsgIds.add(r.chatgptMsgId);
             }
             for (const cm of cache.markers) {
               if (existingAnchors.has(cm.domAnchor)) continue;
+              if (cm.chatgptMsgId && existingMsgIds.has(cm.chatgptMsgId)) continue;
               if (accumulatedRef.current.has(cm.id)) continue;
               accumulatedRef.current.set(cm.id, {
                 id: cm.id,
@@ -149,7 +166,9 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
                 top: 0,
                 height: 0,
                 domAnchor: cm.domAnchor,
+                chatgptMsgId: cm.chatgptMsgId,
                 order: cm.order,
+                absorbedMsgIds: cm.absorbedMsgIds,
               });
             }
             const seeded = Array.from(accumulatedRef.current.values()).sort(
@@ -160,7 +179,93 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
           }
           setCacheState(cache);
           setCacheLoaded(true);
-        });
+        };
+
+        const seedFromApi = async () => {
+          try {
+            const msgs = await adapter.loadConversation!(currentConvId);
+            if (convIdRef.current !== currentConvId) return;
+            if (msgs.length === 0) {
+              loadCache(currentConvId).then(seedFromCache);
+              return;
+            }
+
+            // the api result is the canonical source of truth: it's the
+            // exact thread chatgpt is rendering, in the exact order. while
+            // we were waiting on the async fetch, the initial dom walk
+            // (which runs synchronously every refresh) may have populated
+            // accumulatedRef with live records keyed by generated ids
+            // (msg-N-xyz). those need to be folded into the api records,
+            // not added on top — otherwise we end up with a record per dom
+            // turn AND a record per api message, doubling everything.
+            //
+            // preserve any live element refs by matching on chatgptMsgId.
+            const liveByMsgId = new Map<string, ChatMessageRecord>();
+            for (const r of accumulatedRef.current.values()) {
+              if (r.chatgptMsgId) liveByMsgId.set(r.chatgptMsgId, r);
+            }
+            accumulatedRef.current.clear();
+
+            for (const m of msgs) {
+              const existing = liveByMsgId.get(m.id);
+              const preview = cleanPreviewText(m.text).slice(0, PREVIEW_CHAR_LIMIT);
+              accumulatedRef.current.set(m.id, {
+                id: m.id,
+                role: m.role,
+                textPreview: preview,
+                fullTextLength: m.text.length,
+                features: m.features,
+                top: existing?.top ?? 0,
+                height: existing?.height ?? 0,
+                element: existing?.element,
+                chatgptMsgId: m.id,
+                domAnchor: existing?.domAnchor,
+                order: m.order,
+                absorbedMsgIds: m.absorbedMsgIds,
+              });
+              // re-stamp the live element with the api id so subsequent dom
+              // refreshes lookup by data-chatmap-id finds the right record.
+              if (existing?.element) {
+                existing.element.dataset.chatmapId = m.id;
+              }
+            }
+
+            const seeded = Array.from(accumulatedRef.current.values()).sort(
+              (a, b) => (a.order ?? 999999) - (b.order ?? 999999)
+            );
+            messagesRef.current = seeded;
+            setMessages(seeded);
+            const state: ConvCache = {
+              markers: projectMarkers(seeded),
+              lastUpdated: Date.now(),
+              fullyScanned: true,
+              offerDismissed: false,
+            };
+            setCacheState(state);
+            setCacheLoaded(true);
+            // persist so subsequent loads of the same conv are instant even
+            // before the api call returns
+            saveCache(currentConvId, {
+              markers: state.markers,
+              fullyScanned: true,
+            });
+          } catch (err) {
+            // api failure is non-fatal — fall back to cache + scan path so
+            // the user still gets a working rail (just without full coverage
+            // until a dom walk or manual scan populates it).
+            console.warn("[chatmap] api load failed, falling back to cache:", err);
+            if (convIdRef.current !== currentConvId) return;
+            loadCache(currentConvId).then(seedFromCache);
+          }
+        };
+
+        const canUseApi =
+          chatLoadMode === "api" && typeof adapter.loadConversation === "function";
+        if (canUseApi) {
+          seedFromApi();
+        } else {
+          loadCache(currentConvId).then(seedFromCache);
+        }
       } else {
         setCacheLoaded(true);
       }
@@ -170,29 +275,71 @@ export function useMessageIndex(adapter: ChatSiteAdapter | null) {
 
     // re-key any accumulated record whose dom node was rebuilt — react may
     // drop our stamped dataset attributes, which would produce a duplicate
-    // marker. dedup by stable dom anchor (chatgpt conversation-turn-N).
-    // also handles cache-seeded records: they have no live element yet, so
-    // when the dom mounts the matching turn we want the fresh record to
-    // adopt the cached id and replace the stub.
+    // marker. dedup priority: chatgptMsgId (canonical, used by api-seeded
+    // records) first, then domAnchor (conversation-turn-N) for legacy/cache
+    // stubs. when the dom mounts a matching turn we re-stamp it with the
+    // existing record's id so the cached/api record adopts the live element.
     if (records.length > 0) {
+      const msgIdToExistingId = new Map<string, string>();
       const anchorToExistingId = new Map<string, string>();
       for (const [id, r] of accumulatedRef.current) {
+        if (r.chatgptMsgId) msgIdToExistingId.set(r.chatgptMsgId, id);
+        // absorbed ids point to the same canonical record — two dom turns
+        // sharing a logical response both dedup to the same id.
+        if (r.absorbedMsgIds) {
+          for (const aid of r.absorbedMsgIds) msgIdToExistingId.set(aid, id);
+        }
         if (r.domAnchor) anchorToExistingId.set(r.domAnchor, id);
       }
       for (const fresh of records) {
-        if (!fresh.domAnchor || !fresh.element) continue;
-        const existingId = anchorToExistingId.get(fresh.domAnchor);
+        if (!fresh.element) continue;
+        let existingId: string | undefined;
+        if (fresh.chatgptMsgId) {
+          existingId = msgIdToExistingId.get(fresh.chatgptMsgId);
+        }
+        if (!existingId && fresh.domAnchor) {
+          existingId = anchorToExistingId.get(fresh.domAnchor);
+        }
         if (existingId && existingId !== fresh.id) {
+          const existing = accumulatedRef.current.get(existingId);
           // re-stamp the live element with the original id so future scans match
           fresh.element.dataset.chatmapId = existingId;
-          accumulatedRef.current.delete(existingId);
           fresh.id = existingId;
+          // preserve the api-supplied order. without this, the dom walk
+          // overwrites with conversation-turn-N which can diverge from the
+          // api chain position (edits / branches), causing markers to shift
+          // when live records replace api-seeded ones.
+          if (existing?.order !== undefined) {
+            fresh.order = existing.order;
+            fresh.element.dataset.chatmapOrder = String(existing.order);
+          }
+          // carry canonical metadata so merged responses stay collapsed.
+          // we keep the api-supplied preview/features (joined across the
+          // absorbed parts) and the canonical chatgptMsgId so the lookup
+          // map still finds this record on subsequent refreshes.
+          if (existing) {
+            fresh.chatgptMsgId = existing.chatgptMsgId;
+            fresh.absorbedMsgIds = existing.absorbedMsgIds;
+            fresh.textPreview = existing.textPreview;
+            fresh.fullTextLength = existing.fullTextLength;
+            fresh.features = existing.features;
+            fresh.role = existing.role;
+          }
+          accumulatedRef.current.delete(existingId);
         }
       }
     }
 
-    // update accumulated with latest data for currently rendered elements
-    records.forEach((r) => accumulatedRef.current.set(r.id, r));
+    // update accumulated with latest data for currently rendered elements.
+    // when two dom turns share a canonical id (merged response — preamble +
+    // answer), keep the first walked element so click navigation lands at
+    // the start of the response rather than mid-way through.
+    const seenInWalk = new Set<string>();
+    for (const r of records) {
+      if (seenInWalk.has(r.id)) continue;
+      seenInWalk.add(r.id);
+      accumulatedRef.current.set(r.id, r);
+    }
 
     // write back to cache (debounced). only stores records with a domAnchor
     // because cached-only stubs need a stable address to re-resolve later.

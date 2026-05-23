@@ -42,7 +42,8 @@ export async function saveCache(
 }
 
 // convenience: project a list of records into the storage shape. records
-// without a domAnchor are skipped because they can't be re-resolved later.
+// need either a domAnchor (conversation-turn-N) or a chatgptMsgId so they
+// can be re-resolved when the dom mounts later — drop ones with neither.
 export function projectMarkers(
   records: {
     id: string;
@@ -51,18 +52,22 @@ export function projectMarkers(
     fullTextLength: number;
     features: CachedMarker["features"];
     domAnchor?: string;
+    chatgptMsgId?: string;
     order?: number;
+    absorbedMsgIds?: string[];
   }[]
 ): CachedMarker[] {
   return records
-    .filter((r) => !!r.domAnchor)
+    .filter((r) => !!r.domAnchor || !!r.chatgptMsgId)
     .map((r) => ({
       id: r.id,
       role: r.role,
       textPreview: r.textPreview,
       fullTextLength: r.fullTextLength,
       features: r.features,
-      domAnchor: r.domAnchor as string,
+      domAnchor: r.domAnchor ?? "",
+      chatgptMsgId: r.chatgptMsgId,
       order: r.order ?? 0,
+      absorbedMsgIds: r.absorbedMsgIds,
     }));
 }

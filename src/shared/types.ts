@@ -23,9 +23,20 @@ export interface ChatMessageRecord {
   // adapter-supplied anchor used to re-resolve the dom node after virtualization
   // (chatgpt: conversation-turn-N data-testid). optional so other adapters can omit.
   domAnchor?: string;
+  // chatgpt's internal message id (data-message-id on the inner author-role node).
+  // populated for both api-loaded and dom-walked records when available — the
+  // api returns this directly, so api-seeded records use it as their primary
+  // re-resolve key. survives virtualization more reliably than conversation-turn-N
+  // which can be reused/renumbered across edits.
+  chatgptMsgId?: string;
   // turn order (chatgpt's conversation-turn-N). used for sorting and for
   // estimating scroll position when navigating to a virtualized marker.
   order?: number;
+  // other chatgpt message ids that the api has collapsed into this record
+  // (e.g. a short "I'll check..." preamble followed by the real answer is
+  // rendered as two conversation-turn-N elements but is one logical reply).
+  // dedup uses this so both dom turns adopt the same canonical record.
+  absorbedMsgIds?: string[];
 }
 
 // minimal subset of ChatMessageRecord that survives serialization to
@@ -37,7 +48,9 @@ export interface CachedMarker {
   fullTextLength: number;
   features: ChatMessageFeature[];
   domAnchor: string;
+  chatgptMsgId?: string;
   order: number;
+  absorbedMsgIds?: string[];
 }
 
 export interface ConvCache {
@@ -50,6 +63,12 @@ export interface ConvCache {
 }
 
 export type AccentColor = "gray" | "blue" | "purple" | "green" | "orange" | "pink";
+
+// how to populate the rail on conversation open.
+//   - "api":  fetch the conversation from chatgpt's own backend on load,
+//             giving instant full coverage with zero scrolling
+//   - "scan": rely on the dom + the manual scan offer for long chats
+export type ChatLoadMode = "api" | "scan";
 
 // a configurable shortcut. clicks use the modifier set only (key omitted).
 // keyboard shortcuts require a single character key. modifiers default to
@@ -66,6 +85,9 @@ export interface ChatMapKeybinds {
   editBookmark: Keybind;
   nextImportant: Keybind;
   prevImportant: Keybind;
+  // modifier-only binding: holding these while scrolling moves through
+  // all visible markers (not just bookmarks). key is ignored.
+  scrollNav: Keybind;
 }
 
 export interface ChatMapSettings {
@@ -74,6 +96,7 @@ export interface ChatMapSettings {
   showAssistantMessages: boolean;
   reducedMotion: boolean;
   accentColor: AccentColor;
+  chatLoadMode: ChatLoadMode;
   keybinds: ChatMapKeybinds;
 }
 
