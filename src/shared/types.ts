@@ -62,7 +62,7 @@ export interface ConvCache {
   offerDismissed: boolean;
 }
 
-export type AccentColor = "gray" | "blue" | "purple" | "green" | "orange" | "pink";
+export type AccentColor = "gray" | "blue" | "purple" | "green" | "orange" | "pink" | "sparkle";
 
 // how to populate the rail on conversation open.
 //   - "api":  fetch the conversation from chatgpt's own backend on load,
@@ -88,6 +88,9 @@ export interface ChatMapKeybinds {
   // modifier-only binding: holding these while scrolling moves through
   // all visible markers (not just bookmarks). key is ignored.
   scrollNav: Keybind;
+  // single-key bookmark toggle on the active marker. ignored while focus
+  // is in a text input so it doesn't fire while typing in the chat box.
+  quickBookmark: Keybind;
 }
 
 export interface ChatMapSettings {
@@ -98,6 +101,8 @@ export interface ChatMapSettings {
   accentColor: AccentColor;
   chatLoadMode: ChatLoadMode;
   keybinds: ChatMapKeybinds;
+  // color used when the quick-bookmark keybind drops a no-name bookmark
+  quickBookmarkColor: string;
 }
 
 // per-message annotation. keyed by `${convId}|${domAnchor}` in storage so

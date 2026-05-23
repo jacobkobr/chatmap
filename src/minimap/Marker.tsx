@@ -22,6 +22,7 @@ interface Props {
   onHoverStart: (idx: number) => void;
   onHoverEnd: () => void;
   hoverIdx: number;
+  flash?: boolean;
 }
 
 export function Marker({
@@ -38,6 +39,7 @@ export function Marker({
   onHoverStart,
   onHoverEnd,
   hoverIdx,
+  flash,
 }: Props) {
   const variant = markerVariant(msg);
   const isImportant = !!bookmark;
@@ -64,12 +66,17 @@ export function Marker({
     active ? "marker--active" : "",
     streaming ? "marker--streaming" : "",
     isImportant ? "marker--important" : "",
+    flash ? "marker--flash" : "",
   ]
     .filter(Boolean)
     .join(" ");
 
-  // custom bookmark color overrides the role-based default
-  const inlineStyle = bookmark?.color ? { background: bookmark.color } : undefined;
+  // custom bookmark color overrides the role-based default. also stamp
+  // `color` so `currentColor` (used by the flash glow box-shadow) tracks
+  // the bookmark color.
+  const inlineStyle = bookmark?.color
+    ? { background: bookmark.color, color: bookmark.color }
+    : undefined;
 
   return (
     <div

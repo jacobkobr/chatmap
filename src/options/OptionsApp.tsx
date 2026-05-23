@@ -243,6 +243,7 @@ function OptionsApp() {
             { value: "green", label: "Green" },
             { value: "orange", label: "Orange" },
             { value: "pink", label: "Pink" },
+            { value: "sparkle", label: "Sparkle" },
           ]}
           onChange={(v) => update({ accentColor: v })}
         />
@@ -272,6 +273,27 @@ function OptionsApp() {
               onChange={(next) => updateBind("editBookmark", next)}
             />
             <span className="kb-row-suffix">+ Click</span>
+          </div>
+        </div>
+
+        <div className="kb-row">
+          <div className="kb-row-label">
+            Quick bookmark
+            <span className="kb-row-hint">press to toggle on the active marker</span>
+          </div>
+          <div className="kb-row-binding">
+            <KeyRecorder
+              bind={settings.keybinds.quickBookmark}
+              onChange={(next) => updateBind("quickBookmark", next)}
+            />
+            <input
+              type="color"
+              className="kb-color-input"
+              aria-label="Quick bookmark color"
+              title="Quick bookmark color"
+              value={settings.quickBookmarkColor}
+              onChange={(e) => update({ quickBookmarkColor: e.target.value })}
+            />
           </div>
         </div>
 

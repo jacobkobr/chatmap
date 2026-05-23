@@ -61,12 +61,25 @@ export function PreviewCard({ msg, index, total, bookmark, onDeleteBookmark }: P
     </div>
   );
 
+  const badgeRow = badges.length > 0 && (
+    <span className="preview-badges">
+      {badges.map((b) => (
+        <span key={b} className="preview-badge" title={b}>
+          {BADGE_ICONS[b] ?? b}
+        </span>
+      ))}
+    </span>
+  );
+
   return (
     <div className={cardClass}>
       {showRoleLabel ? (
         <div className="preview-header">
-          <span className={`preview-role preview-role--${msg.role}`}>
-            ChatGPT
+          <span className="preview-header-left">
+            <span className={`preview-role preview-role--${msg.role}`}>
+              ChatGPT
+            </span>
+            {badgeRow}
           </span>
           {meta}
         </div>
@@ -94,15 +107,10 @@ export function PreviewCard({ msg, index, total, bookmark, onDeleteBookmark }: P
         <p className="preview-bookmark-note">{bookmark.note}</p>
       )}
 
-      {badges.length > 0 && (
-        <div className="preview-badges">
-          {badges.map((b) => (
-            <span key={b} className="preview-badge" title={b}>
-              {BADGE_ICONS[b] ?? b}
-            </span>
-          ))}
-        </div>
-      )}
+      {/* user previews keep the badge row below since they have no
+          header to dock it into. assistant previews show badges inline
+          next to "ChatGPT" above. */}
+      {!showRoleLabel && badgeRow}
 
       <p className="preview-text">{msg.textPreview}</p>
     </div>

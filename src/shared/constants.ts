@@ -38,6 +38,13 @@ export const DEFAULT_KEYBINDS = {
     ctrlKey: false,
     metaKey: false,
   },
+  quickBookmark: {
+    altKey: false,
+    shiftKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    key: "b",
+  },
 };
 
 export const DEFAULT_SETTINGS = {
@@ -48,6 +55,7 @@ export const DEFAULT_SETTINGS = {
   accentColor: "gray" as const,
   chatLoadMode: "api" as const,
   keybinds: DEFAULT_KEYBINDS,
+  quickBookmarkColor: "#ec4899",
 };
 
 export const BOOKMARKS_STORAGE_KEY = "chatmap-bookmarks";

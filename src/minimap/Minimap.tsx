@@ -359,6 +359,10 @@ export function Minimap({ adapter, settings }: Props) {
   // the next wheel event so chained scrolls advance reliably even before
   // activeIdx has caught up to the in-flight smooth scroll.
   const wheelNavRef = useRef<number | null>(null);
+  // idx of the marker that just got a quick-bookmark — drives a brief
+  // glow on the marker as confirmation. -1 = no flash active.
+  const [flashIdx, setFlashIdx] = useState(-1);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // last bookmark idx visited via keybind nav. lets us advance/retreat in
@@ -1030,6 +1034,58 @@ export function Minimap({ adapter, settings }: Props) {
     return () => window.removeEventListener("wheel", onWheel);
   }, [visible, activeIdx, settings.keybinds, performNavigate]);
 
+  // quick-bookmark: single-key toggle on the active marker. drops a
+  // bookmark with the user's configured color (default pink), or removes
+  // it if one already exists. ignored while focus is in a text input so
+  // it doesn't fire while typing in the chat box.
+  useEffect(() => {
+    const { quickBookmark } = settings.keybinds;
+    if (!quickBookmark) return;
+    if (visible.length === 0) return;
+
+    function onKey(e: KeyboardEvent) {
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || t?.isContentEditable) return;
+      if (!matchesKeybind(e, quickBookmark)) return;
+      e.preventDefault();
+      const idx =
+        navCalloutIdx >= 0 && navCalloutIdx < visible.length
+          ? navCalloutIdx
+          : activeIdx;
+      if (idx < 0 || !visible[idx]) return;
+      const msg = visible[idx];
+      const k = bookmarkKey(convId, msg.domAnchor, msg.chatgptMsgId);
+      if (!k) return;
+      const existing = bookmarkFor(msg);
+      if (existing) {
+        deleteBookmark(k);
+        const legacy = legacyBookmarkKey(convId, msg.domAnchor);
+        if (legacy && legacy !== k) deleteBookmark(legacy);
+        return;
+      }
+      setBookmark(k, {
+        color: settings.quickBookmarkColor,
+        createdAt: Date.now(),
+      });
+      // brief glow on the marker so the user sees the change land
+      setFlashIdx(idx);
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+      flashTimer.current = setTimeout(() => setFlashIdx(-1), 600);
+    }
+
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [
+    visible,
+    activeIdx,
+    navCalloutIdx,
+    settings.keybinds,
+    settings.quickBookmarkColor,
+    convId,
+    bookmarkFor,
+  ]);
+
   if (!isDesktop) return null;
 
   function expand() {
@@ -1152,6 +1208,7 @@ export function Minimap({ adapter, settings }: Props) {
               onHoverStart={handleHoverStart}
               onHoverEnd={handleHoverEnd}
               hoverIdx={i}
+              flash={i === flashIdx}
             />
           );
         })}

@@ -67,6 +67,13 @@
   --accent-fg: #ffffff;
 }
 
+[data-accent="sparkle"] {
+  --accent: #c084fc;
+  --accent-hover: #d8b4fe;
+  --accent-soft: rgba(192, 132, 252, 0.24);
+  --accent-fg: #1a1a1a;
+}
+
 html,
 body,
 #root {
@@ -315,6 +322,15 @@ button {
   flex-wrap: wrap;
 }
 
+/* when the binding row also holds a sibling (color picker, suffix),
+   the recorder should flex to fill remaining space instead of taking
+   the whole row at width: 100% and pushing siblings to the next line. */
+.kb-row-binding .key-recorder {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
+}
+
 .kb-row-suffix {
   font-size: 12px;
   font-weight: 600;
@@ -323,6 +339,21 @@ button {
   border-radius: 999px;
   border: 1px dashed var(--border);
 }
+
+/* compact color swatch input for the quick-bookmark row */
+.kb-color-input {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.kb-color-input::-webkit-color-swatch-wrapper { padding: 2px; }
+.kb-color-input::-webkit-color-swatch { border: none; border-radius: 6px; }
+.kb-color-input::-moz-color-swatch { border: none; border-radius: 6px; }
 
 .mod-group {
   display: flex;
