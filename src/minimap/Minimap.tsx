@@ -987,9 +987,12 @@ export function Minimap({ adapter, settings }: Props) {
     return () => document.removeEventListener("keydown", onKey);
   }, [visible, activeIdx, bookmarkFor, settings.keybinds, performNavigate]);
 
-  // alt+shift+scroll (modifier-only) — step through every visible marker in
-  // rail order. one navigation per wheel event with a short cooldown so a
-  // trackpad burst doesn't fly past the chat. independent of bookmark nav.
+  // alt+shift+scroll (modifier-only) — accumulator-driven marker stepping.
+  // deltaY adds to an accumulator and each STEP_PX of accumulated travel
+  // advances one marker. fast spins build the accumulator quickly and skip
+  // several markers in one performNavigate, which retargets the in-flight
+  // smooth scroll instead of stuttering through discrete cooldown steps.
+  // accumulator resets after a brief pause so a new gesture starts fresh.
   useEffect(() => {
     const { scrollNav } = settings.keybinds;
     if (!scrollNav) return;
@@ -997,27 +1000,28 @@ export function Minimap({ adapter, settings }: Props) {
     if (!scrollNav.altKey && !scrollNav.shiftKey && !scrollNav.ctrlKey && !scrollNav.metaKey) {
       return;
     }
-    let lastFire = 0;
+    let accum = 0;
+    let lastTs = 0;
+    const STEP_PX = 100;
+    const RESET_MS = 320;
 
     function onWheel(e: WheelEvent) {
       if (!matchesKeybind(e, scrollNav, false)) return;
       e.preventDefault();
-      const now = Date.now();
-      if (now - lastFire < 160) return;
-      // smooth-scroll lag means activeIdx hasn't caught up by the next
-      // wheel event; chain off our last wheel target when it's fresh.
+      const now = performance.now();
+      if (now - lastTs > RESET_MS) accum = 0;
+      lastTs = now;
+      accum += e.deltaY;
+      const steps = (accum > 0 ? Math.floor : Math.ceil)(accum / STEP_PX);
+      if (steps === 0) return;
+      accum -= steps * STEP_PX;
+
       const baseIdx =
-        wheelNavRef.current !== null && now - lastFire < 1500
-          ? wheelNavRef.current
-          : activeIdx;
-      lastFire = now;
-      const dir: 1 | -1 = e.deltaY > 0 ? 1 : -1;
-      let idx: number;
-      if (dir > 0) {
-        idx = baseIdx < 0 || baseIdx >= visible.length - 1 ? 0 : baseIdx + 1;
-      } else {
-        idx = baseIdx <= 0 ? visible.length - 1 : baseIdx - 1;
-      }
+        wheelNavRef.current !== null ? wheelNavRef.current : activeIdx;
+      let idx = (baseIdx < 0 ? 0 : baseIdx) + steps;
+      if (idx < 0) idx = 0;
+      if (idx > visible.length - 1) idx = visible.length - 1;
+      if (idx === baseIdx) return;
       wheelNavRef.current = idx;
       if (visible[idx]) performNavigate(visible[idx]);
     }
@@ -1071,6 +1075,13 @@ export function Minimap({ adapter, settings }: Props) {
     }
     return -1;
   })();
+  // during navigation the visible-extent tracker lags behind the smooth
+  // scroll target — promote the nav-callout target so the highlighted
+  // marker stays in sync with where the user is actually scrolling to.
+  const effectiveActiveIdx =
+    navCalloutIdx >= 0 && navCalloutIdx < visible.length
+      ? navCalloutIdx
+      : activeIdx;
 
   // brief label for the nav callout — bookmark name when set, otherwise
   // the first sentence (or first 48 chars) of the preview text.
@@ -1120,7 +1131,7 @@ export function Minimap({ adapter, settings }: Props) {
               ? 50
               : (i / (visible.length - 1)) * 92 + 4;
           const globalIdx = messages.indexOf(msg);
-          const isActive = i === activeIdx;
+          const isActive = i === effectiveActiveIdx;
           const isStreamingTick =
             isStreaming && i === lastAssistantIdx && msg.role === "assistant";
 

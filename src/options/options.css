@@ -90,7 +90,9 @@ body,
 }
 
 html {
-  scrollbar-color: #555 var(--bg);
+  /* firefox: thin dark-gray thumb, transparent track */
+  scrollbar-width: thin;
+  scrollbar-color: #4a4a4a transparent;
 }
 
 body {
@@ -98,17 +100,30 @@ body {
 }
 
 body::-webkit-scrollbar {
-  width: 10px;
+  width: 6px;
+  height: 6px;
 }
 
 body::-webkit-scrollbar-track {
-  background: var(--bg);
+  background: transparent;
 }
 
 body::-webkit-scrollbar-thumb {
-  background: #555;
-  border: 2px solid var(--bg);
+  background: #4a4a4a;
   border-radius: 999px;
+}
+
+body::-webkit-scrollbar-thumb:hover {
+  background: #5a5a5a;
+}
+
+/* drop the up/down arrow buttons that some platforms render by default */
+body::-webkit-scrollbar-button {
+  display: none;
+}
+
+body::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 button,
