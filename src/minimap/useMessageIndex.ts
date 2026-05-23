@@ -168,6 +168,7 @@ export function useMessageIndex(
                 domAnchor: cm.domAnchor,
                 chatgptMsgId: cm.chatgptMsgId,
                 order: cm.order,
+                absorbedMsgIds: cm.absorbedMsgIds,
               });
             }
             const seeded = Array.from(accumulatedRef.current.values()).sort(
@@ -188,7 +189,25 @@ export function useMessageIndex(
               loadCache(currentConvId).then(seedFromCache);
               return;
             }
+
+            // the api result is the canonical source of truth: it's the
+            // exact thread chatgpt is rendering, in the exact order. while
+            // we were waiting on the async fetch, the initial dom walk
+            // (which runs synchronously every refresh) may have populated
+            // accumulatedRef with live records keyed by generated ids
+            // (msg-N-xyz). those need to be folded into the api records,
+            // not added on top — otherwise we end up with a record per dom
+            // turn AND a record per api message, doubling everything.
+            //
+            // preserve any live element refs by matching on chatgptMsgId.
+            const liveByMsgId = new Map<string, ChatMessageRecord>();
+            for (const r of accumulatedRef.current.values()) {
+              if (r.chatgptMsgId) liveByMsgId.set(r.chatgptMsgId, r);
+            }
+            accumulatedRef.current.clear();
+
             for (const m of msgs) {
+              const existing = liveByMsgId.get(m.id);
               const preview = cleanPreviewText(m.text).slice(0, PREVIEW_CHAR_LIMIT);
               accumulatedRef.current.set(m.id, {
                 id: m.id,
@@ -196,12 +215,21 @@ export function useMessageIndex(
                 textPreview: preview,
                 fullTextLength: m.text.length,
                 features: m.features,
-                top: 0,
-                height: 0,
+                top: existing?.top ?? 0,
+                height: existing?.height ?? 0,
+                element: existing?.element,
                 chatgptMsgId: m.id,
+                domAnchor: existing?.domAnchor,
                 order: m.order,
+                absorbedMsgIds: m.absorbedMsgIds,
               });
+              // re-stamp the live element with the api id so subsequent dom
+              // refreshes lookup by data-chatmap-id finds the right record.
+              if (existing?.element) {
+                existing.element.dataset.chatmapId = m.id;
+              }
             }
+
             const seeded = Array.from(accumulatedRef.current.values()).sort(
               (a, b) => (a.order ?? 999999) - (b.order ?? 999999)
             );
@@ -256,6 +284,11 @@ export function useMessageIndex(
       const anchorToExistingId = new Map<string, string>();
       for (const [id, r] of accumulatedRef.current) {
         if (r.chatgptMsgId) msgIdToExistingId.set(r.chatgptMsgId, id);
+        // absorbed ids point to the same canonical record — two dom turns
+        // sharing a logical response both dedup to the same id.
+        if (r.absorbedMsgIds) {
+          for (const aid of r.absorbedMsgIds) msgIdToExistingId.set(aid, id);
+        }
         if (r.domAnchor) anchorToExistingId.set(r.domAnchor, id);
       }
       for (const fresh of records) {
@@ -268,16 +301,45 @@ export function useMessageIndex(
           existingId = anchorToExistingId.get(fresh.domAnchor);
         }
         if (existingId && existingId !== fresh.id) {
+          const existing = accumulatedRef.current.get(existingId);
           // re-stamp the live element with the original id so future scans match
           fresh.element.dataset.chatmapId = existingId;
-          accumulatedRef.current.delete(existingId);
           fresh.id = existingId;
+          // preserve the api-supplied order. without this, the dom walk
+          // overwrites with conversation-turn-N which can diverge from the
+          // api chain position (edits / branches), causing markers to shift
+          // when live records replace api-seeded ones.
+          if (existing?.order !== undefined) {
+            fresh.order = existing.order;
+            fresh.element.dataset.chatmapOrder = String(existing.order);
+          }
+          // carry canonical metadata so merged responses stay collapsed.
+          // we keep the api-supplied preview/features (joined across the
+          // absorbed parts) and the canonical chatgptMsgId so the lookup
+          // map still finds this record on subsequent refreshes.
+          if (existing) {
+            fresh.chatgptMsgId = existing.chatgptMsgId;
+            fresh.absorbedMsgIds = existing.absorbedMsgIds;
+            fresh.textPreview = existing.textPreview;
+            fresh.fullTextLength = existing.fullTextLength;
+            fresh.features = existing.features;
+            fresh.role = existing.role;
+          }
+          accumulatedRef.current.delete(existingId);
         }
       }
     }
 
-    // update accumulated with latest data for currently rendered elements
-    records.forEach((r) => accumulatedRef.current.set(r.id, r));
+    // update accumulated with latest data for currently rendered elements.
+    // when two dom turns share a canonical id (merged response — preamble +
+    // answer), keep the first walked element so click navigation lands at
+    // the start of the response rather than mid-way through.
+    const seenInWalk = new Set<string>();
+    for (const r of records) {
+      if (seenInWalk.has(r.id)) continue;
+      seenInWalk.add(r.id);
+      accumulatedRef.current.set(r.id, r);
+    }
 
     // write back to cache (debounced). only stores records with a domAnchor
     // because cached-only stubs need a stable address to re-resolve later.

@@ -32,6 +32,11 @@ export interface ChatMessageRecord {
   // turn order (chatgpt's conversation-turn-N). used for sorting and for
   // estimating scroll position when navigating to a virtualized marker.
   order?: number;
+  // other chatgpt message ids that the api has collapsed into this record
+  // (e.g. a short "I'll check..." preamble followed by the real answer is
+  // rendered as two conversation-turn-N elements but is one logical reply).
+  // dedup uses this so both dom turns adopt the same canonical record.
+  absorbedMsgIds?: string[];
 }
 
 // minimal subset of ChatMessageRecord that survives serialization to
@@ -45,6 +50,7 @@ export interface CachedMarker {
   domAnchor: string;
   chatgptMsgId?: string;
   order: number;
+  absorbedMsgIds?: string[];
 }
 
 export interface ConvCache {
@@ -79,6 +85,9 @@ export interface ChatMapKeybinds {
   editBookmark: Keybind;
   nextImportant: Keybind;
   prevImportant: Keybind;
+  // modifier-only binding: holding these while scrolling moves through
+  // all visible markers (not just bookmarks). key is ignored.
+  scrollNav: Keybind;
 }
 
 export interface ChatMapSettings {

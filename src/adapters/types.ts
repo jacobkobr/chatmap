@@ -9,6 +9,10 @@ export interface ApiMessage {
   text: string;
   features: ChatMessageFeature[];
   order: number;
+  // ids of additional chatgpt messages collapsed into this record (e.g. a
+  // preamble bubble + the real answer). used by dedup to map both dom turns
+  // to the same marker.
+  absorbedMsgIds?: string[];
 }
 
 export interface ChatSiteAdapter {

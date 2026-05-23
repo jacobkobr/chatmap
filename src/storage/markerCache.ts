@@ -54,6 +54,7 @@ export function projectMarkers(
     domAnchor?: string;
     chatgptMsgId?: string;
     order?: number;
+    absorbedMsgIds?: string[];
   }[]
 ): CachedMarker[] {
   return records
@@ -67,5 +68,6 @@ export function projectMarkers(
       domAnchor: r.domAnchor ?? "",
       chatgptMsgId: r.chatgptMsgId,
       order: r.order ?? 0,
+      absorbedMsgIds: r.absorbedMsgIds,
     }));
 }

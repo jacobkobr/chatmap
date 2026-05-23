@@ -32,6 +32,12 @@ export const DEFAULT_KEYBINDS = {
     metaKey: false,
     key: "w",
   },
+  scrollNav: {
+    altKey: true,
+    shiftKey: true,
+    ctrlKey: false,
+    metaKey: false,
+  },
 };
 
 export const DEFAULT_SETTINGS = {
