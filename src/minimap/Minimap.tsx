@@ -365,6 +365,11 @@ export function Minimap({ adapter, settings }: Props) {
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // active-marker walk state — refs so it survives effect re-runs caused
+  // by chatgpt virtualizing turns in/out (which mutates `visible`).
+  const walkCurRef = useRef(-1);
+  const walkTargetRef = useRef(-1);
+  const walkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // last bookmark idx visited via keybind nav. lets us advance/retreat in
   // rail order even when the visible-extent active tracker has drifted to
   // a neighboring message (e.g. a long assistant turn right after a short
@@ -702,15 +707,18 @@ export function Minimap({ adapter, settings }: Props) {
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  // active tick tracks the message the user is actually looking at.
-  // for each visible message we compute visible extent below the sticky
-  // header, then normalize by the message's own height. a short message
-  // that's 100% in view beats a long message that's only 40% in view —
-  // which fixes the "user msg sandwiched between two long assistant turns
-  // is never highlighted" case (raw extent let the long turns always win).
-  // tiebreak: distance from the visible-portion center to a reading line
-  // just below TOP_GAP, closer wins. just-clicked messages still get a
-  // dominant boost so the highlight snaps immediately after navigation.
+  // active tick — which message the user is reading.
+  //
+  // selection: nearest message to a reading line. line slides from 42%
+  // mid-scroll toward 15% near top / 88% near bottom so first/last msgs
+  // each get their turn instead of getting hidden behind a tall neighbor.
+  //
+  // chronological walking: rAF can only sample at 16ms. fast scroll moves
+  // through several short msgs between samples, so the selected "best"
+  // can jump by 3+ — the user sees "skipped" markers. fix: when best
+  // jumps by >1, step through the intermediates one per frame so the rail
+  // visibly walks the markers in order. if best changes again mid-walk,
+  // the walk redirects toward the new target.
   useEffect(() => {
     if (visible.length === 0) {
       setActiveIdx(-1);
@@ -721,73 +729,165 @@ export function Minimap({ adapter, settings }: Props) {
     const container = firstLive ? findScrollContainer(firstLive) : null;
     const scrollTarget: HTMLElement | Window = container ?? window;
 
-    const READING_BOOST_WINDOW = 14; // px tolerance around TOP_GAP
-    const READING_BOOST = 1e9;       // dominates all natural scores
-
     let raf = 0;
+    // walk pace adapts to remaining distance. close target = slow per step
+    // so each marker is visibly active. far target (fast scroll caught us
+    // 10+ markers behind) = faster per step so the rail catches up without
+    // a perceptible lag.
+    const STEP_SLOW = 70;
+    const STEP_FAST = 35;
+    const FAST_THRESHOLD = 6;
+
+    const cancelWalk = () => {
+      if (walkTimerRef.current) {
+        clearTimeout(walkTimerRef.current);
+        walkTimerRef.current = null;
+      }
+    };
+    const commit = (idx: number) => {
+      if (idx === walkCurRef.current) return;
+      walkCurRef.current = idx;
+      setActiveIdx(idx);
+    };
+    // snap directly to target, cancel any walk in progress. used for
+    // boundary forcing where the user is definitively at the edge —
+    // dragging a stale walk through 10 markers would feel laggy.
+    const snap = (target: number) => {
+      if (target < 0) return;
+      cancelWalk();
+      walkTargetRef.current = target;
+      commit(target);
+    };
+    const setTarget = (target: number) => {
+      if (target < 0) return;
+      // first commit ever — no walk, just commit
+      if (walkCurRef.current < 0) {
+        walkTargetRef.current = target;
+        commit(target);
+        return;
+      }
+      walkTargetRef.current = target;
+      if (walkCurRef.current === walkTargetRef.current) return;
+      if (walkTimerRef.current) return; // walk already running picks up new target
+      const step = () => {
+        walkTimerRef.current = null;
+        if (walkCurRef.current === walkTargetRef.current) return;
+        const remaining = Math.abs(
+          walkTargetRef.current - walkCurRef.current
+        );
+        const dir = walkTargetRef.current > walkCurRef.current ? 1 : -1;
+        commit(walkCurRef.current + dir);
+        if (walkCurRef.current !== walkTargetRef.current) {
+          const nextRem = Math.abs(
+            walkTargetRef.current - walkCurRef.current
+          );
+          const ms = nextRem > FAST_THRESHOLD ? STEP_FAST : STEP_SLOW;
+          walkTimerRef.current = setTimeout(step, ms);
+        }
+        // reference `remaining` so eslint doesn't whine and so the
+        // pre-step value can be inspected during debugging.
+        void remaining;
+      };
+      step();
+    };
+
+    const getScrollPos = () =>
+      container ? container.scrollTop : window.scrollY;
+    const getMaxScroll = () => {
+      if (container)
+        return Math.max(0, container.scrollHeight - container.clientHeight);
+      const doc = document.documentElement;
+      return Math.max(0, doc.scrollHeight - window.innerHeight);
+    };
+    const getViewBounds = () => {
+      if (container) {
+        const r = container.getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom };
+      }
+      return { top: 0, bottom: window.innerHeight };
+    };
+
     const compute = () => {
       raf = 0;
-      const vh = window.innerHeight;
+      const { top: vTop, bottom: vBot } = getViewBounds();
+      const viewportH = vBot - vTop;
+      if (viewportH <= 0) return;
 
-      // reading line slides as the user approaches the scroll bottom.
-      // most of the time it sits just below the sticky header (where eyes
-      // track new content). only in the last ~200px of scrollable range
-      // does it lerp toward the bottom of the viewport, so when the user
-      // can't scroll any further the last messages win the highlight.
-      // previously the line was pinned to the top and long earlier
-      // messages kept hijacking the active state at scroll-bottom.
-      const baseLine = TOP_GAP + Math.min(120, vh * 0.15);
-      const bottomLine = vh - 100;
-      let readingLine = baseLine;
-      if (container) {
-        const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
-        if (maxScroll > 0) {
-          const distFromBottom = maxScroll - container.scrollTop;
-          const lerp = Math.max(0, Math.min(1, 1 - distFromBottom / 200));
-          readingLine = baseLine + (bottomLine - baseLine) * lerp;
+      const scrollPos = getScrollPos();
+      const maxScroll = getMaxScroll();
+
+      // reading line slides near the scroll boundaries so the first/last
+      // few messages each get their turn at the line. without this, the
+      // line is stuck at 42% from top and the last small msgs at scroll-
+      // bottom never reach it (an earlier long msg keeps winning), and
+      // first msgs at scroll-top hit the line only after the user has
+      // scrolled past them.
+      //   - mid-scroll:   42% from top
+      //   - near bottom:  slides toward 88% over last viewportH pixels
+      //   - near top:     slides toward 15% over first viewportH pixels
+      const BASE_FRAC = 0.42;
+      const BOT_FRAC = 0.88;
+      const TOP_FRAC = 0.15;
+      let frac = BASE_FRAC;
+      if (maxScroll > 0) {
+        const distFromBot = maxScroll - scrollPos;
+        if (distFromBot < viewportH) {
+          const t = 1 - distFromBot / viewportH; // 0 → 1 as we near bottom
+          frac = BASE_FRAC + (BOT_FRAC - BASE_FRAC) * t;
+        } else if (scrollPos < viewportH) {
+          const t = 1 - scrollPos / viewportH; // 0 → 1 as we near top
+          frac = BASE_FRAC + (TOP_FRAC - BASE_FRAC) * t;
         }
       }
+      const readingLine = vTop + viewportH * frac;
 
-      let active = -1;
-      let bestScore = -Infinity;
+      let firstVisible = -1;
+      let lastVisible = -1;
+      let best = -1;
+      let bestDist = Infinity;
+      let bestTop = -Infinity;
 
       for (let i = 0; i < visible.length; i++) {
         const el = resolveTarget(visible[i]);
         if (!el || !document.contains(el)) continue;
         const r = el.getBoundingClientRect();
-        if (r.bottom > 0 && r.top < vh) markRead(visible[i].id);
+        if (r.bottom <= vTop || r.top >= vBot) continue;
+        markRead(visible[i].id);
+        if (firstVisible === -1) firstVisible = i;
+        lastVisible = i;
 
-        // clamp visTop to TOP_GAP: chatgpt's sticky top header (~110px) hides
-        // anything above it. visible portion below the header is what counts.
-        const visTop = Math.max(TOP_GAP, r.top);
-        const visBot = Math.min(vh, r.bottom);
-        const extent = visBot - visTop;
-        if (extent <= 0) continue;
+        const dist =
+          r.top <= readingLine && r.bottom >= readingLine
+            ? 0
+            : r.top > readingLine
+              ? r.top - readingLine
+              : readingLine - r.bottom;
 
-        // floor msg height so a one-line user msg (~28px) doesn't dominate
-        // by sheer ratio when only marginally in view.
-        const msgHeight = Math.max(40, r.height);
-        const ratio = Math.min(1, extent / msgHeight);
-
-        // tiebreaker: how close the visible-portion center is to the reading
-        // line. small distances are barely a thumb on the scale; the ratio
-        // does the heavy lifting.
-        const visCenter = (visTop + visBot) / 2;
-        const distPenalty = Math.abs(visCenter - readingLine) * 0.001;
-
-        const atReadingLine =
-          r.top > TOP_GAP - READING_BOOST_WINDOW &&
-          r.top < TOP_GAP + READING_BOOST_WINDOW;
-        const score =
-          (atReadingLine ? READING_BOOST : 0) + ratio - distPenalty;
-
-        if (score > bestScore) {
-          bestScore = score;
-          active = i;
+        if (
+          dist < bestDist ||
+          (dist === bestDist && r.top > bestTop)
+        ) {
+          best = i;
+          bestDist = dist;
+          bestTop = r.top;
         }
       }
 
-      setActiveIdx(active);
+      if (firstVisible === -1) return; // nothing visible, leave active alone
+
+      // boundary forcing — last message often can't reach the reading line.
+      // snap instantly (no walk) because the user is definitively at the
+      // edge; dragging an in-flight walk through 10 markers feels laggy.
+      if (scrollPos <= 4) {
+        snap(firstVisible);
+        return;
+      }
+      if (scrollPos >= maxScroll - 4) {
+        snap(lastVisible);
+        return;
+      }
+
+      if (best !== -1) setTarget(best);
     };
 
     const onScroll = () => {
@@ -801,6 +901,9 @@ export function Minimap({ adapter, settings }: Props) {
       scrollTarget.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
       if (raf) cancelAnimationFrame(raf);
+      // walkTimer is intentionally not cleared — it persists across
+      // effect re-runs (caused by chatgpt virtualizing turns) so the
+      // walk doesn't get cancelled mid-step every time `visible` updates.
     };
   }, [visible, markRead]);
 

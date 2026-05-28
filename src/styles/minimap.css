@@ -108,7 +108,11 @@
 /* hover/active scale from the right edge so growth stays anchored */
 .marker { transform-origin: right center; }
 .marker:hover { transform: scaleY(2) scaleX(1.04); opacity: 0.85; }
-.marker--active { transform: scaleY(1.6); opacity: 1; }
+/* active snaps in INSTANTLY (no transition on entry) so even a brief 20ms
+   walk step is fully visible — partial transitions during fast scroll
+   smear together as a blur. exit still uses the regular 120ms transition
+   so the highlight gracefully fades when the marker stops being active. */
+.marker--active { transform: scaleY(1.6); opacity: 1; transition: none; }
 
 /*
   alternating user vs assistant — length differs AND color differs so the

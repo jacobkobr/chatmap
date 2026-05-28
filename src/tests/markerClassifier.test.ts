@@ -22,12 +22,15 @@ describe("markerVariant", () => {
     expect(markerVariant(makeMsg({ role: "user" }))).toBe("user");
   });
 
-  it("code feature takes priority over assistant", () => {
-    expect(markerVariant(makeMsg({ features: ["code"] }))).toBe("code");
+  // variant is strictly role-based now — features surface as preview badges,
+  // not as distinct marker colors, so an assistant msg stays "assistant"
+  // regardless of which features it carries.
+  it("code feature does not change an assistant variant", () => {
+    expect(markerVariant(makeMsg({ features: ["code"] }))).toBe("assistant");
   });
 
-  it("long-answer comes after code", () => {
-    expect(markerVariant(makeMsg({ features: ["long-answer"] }))).toBe("long");
+  it("long-answer feature does not change an assistant variant", () => {
+    expect(markerVariant(makeMsg({ features: ["long-answer"] }))).toBe("assistant");
   });
 
   it("plain assistant defaults to assistant", () => {
