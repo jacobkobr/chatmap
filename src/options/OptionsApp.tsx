@@ -261,7 +261,7 @@ function OptionsApp() {
         <div className="section-title">General</div>
 
         <Toggle
-          label="Enable ChatMap"
+          label="Enable chatmap"
           checked={settings.enabled}
           onChange={(v) => update({ enabled: v })}
         />
@@ -317,6 +317,7 @@ function OptionsApp() {
           options={[
             { value: "blue", label: "Aqua" },
             { value: "gray", label: "Gray" },
+            { value: "white", label: "White" },
             { value: "purple", label: "Purple" },
             { value: "green", label: "Green" },
             { value: "orange", label: "Orange" },

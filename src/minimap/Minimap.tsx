@@ -106,16 +106,17 @@ function tweenContainerToMessage(
   container: HTMLElement,
   msg: ChatMessageRecord,
   reduced: boolean
-) {
+): () => void {
+  const noop = () => {};
   const initial = resolveTarget(msg);
-  if (!initial) return;
+  if (!initial) return noop;
 
   const initialDest = Math.max(0, destScrollTop(initial, container));
   const initialDelta = Math.abs(container.scrollTop - initialDest);
 
   if (reduced || initialDelta < 8) {
     container.scrollTo({ top: initialDest, behavior: "instant" as ScrollBehavior });
-    return;
+    return noop;
   }
 
   let startScrollTop = container.scrollTop;
@@ -225,6 +226,15 @@ function tweenContainerToMessage(
   };
 
   requestAnimationFrame(tick);
+  // cancel handle for the caller — rapid sequential clicks need to be able
+  // to halt the prior tween before starting a new one, otherwise both tick
+  // loops write to scrollTop every frame and the page lands somewhere
+  // between the two targets (worst on long jumps where the first tween is
+  // still mid-flight when the second click lands).
+  return () => {
+    cancelled = true;
+    cleanup();
+  };
 }
 
 // resolve the freshest live dom node for a message. tries (in order):
@@ -296,45 +306,54 @@ function scrollToMessage(
   reduced: boolean,
   msgIdx: number,
   totalMessages: number
-) {
+): () => void {
+  const noop = () => {};
   const target = resolveTarget(msg);
 
   if (target) {
     const container = findScrollContainer(target);
     if (container) {
-      tweenContainerToMessage(container, msg, reduced);
-    } else {
-      const eRect = target.getBoundingClientRect();
-      window.scrollTo({
-        top: Math.max(0, window.scrollY + eRect.top - TOP_GAP),
-        behavior: reduced ? "instant" : "smooth",
-      });
+      return tweenContainerToMessage(container, msg, reduced);
     }
-    return;
+    const eRect = target.getBoundingClientRect();
+    window.scrollTo({
+      top: Math.max(0, window.scrollY + eRect.top - TOP_GAP),
+      behavior: reduced ? "instant" : "smooth",
+    });
+    return noop;
   }
 
   // virtualized: snap toward an estimated scroll position, poll for the
   // element to mount (chatgpt's lazy-load takes ~100-300ms per slice), then
   // run the normal tween once it's resolvable.
   const anyTurn = anyLiveTurn();
-  if (!anyTurn) return;
+  if (!anyTurn) return noop;
   const container = findScrollContainer(anyTurn);
-  if (!container) return;
+  if (!container) return noop;
 
   const estimate = estimateScrollForIndex(container, msgIdx, totalMessages);
   container.scrollTo({ top: estimate, behavior: "instant" as ScrollBehavior });
 
+  let cancelled = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let subCancel: (() => void) | null = null;
   let attempts = 0;
   const tryResolve = () => {
+    if (cancelled) return;
     attempts++;
     const live = resolveTarget(msg);
     if (live) {
-      tweenContainerToMessage(container, msg, reduced);
+      subCancel = tweenContainerToMessage(container, msg, reduced);
       return;
     }
-    if (attempts < 10) setTimeout(tryResolve, 120);
+    if (attempts < 10) timer = setTimeout(tryResolve, 120);
   };
-  setTimeout(tryResolve, 180);
+  timer = setTimeout(tryResolve, 180);
+  return () => {
+    cancelled = true;
+    if (timer) clearTimeout(timer);
+    if (subCancel) subCancel();
+  };
 }
 
 // 14px per message, 80px min, 88% viewport max
@@ -361,6 +380,10 @@ export function Minimap({ adapter, settings }: Props) {
   // settles. holds the target until the user actually scrolls again.
   const [clickLockIdx, setClickLockIdx] = useState(-1);
   const navCalloutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // cancel handle for the most-recent scroll tween. rapid sequential clicks
+  // (or wheel-nav steps on a long chat) need to halt the prior tween before
+  // starting a new one — otherwise multiple tick loops fight for scrollTop.
+  const tweenCancelRef = useRef<(() => void) | null>(null);
   // last marker idx reached via alt+shift+scroll. used as the anchor for
   // the next wheel event so chained scrolls advance reliably even before
   // activeIdx has caught up to the in-flight smooth scroll.
@@ -1042,7 +1065,11 @@ export function Minimap({ adapter, settings }: Props) {
           walkTimerRef.current = null;
         }
       }
-      scrollToMessage(
+      // halt any in-flight tween from a prior click before we start a new
+      // one; without this, two tick loops race on scrollTop and the page
+      // lands somewhere between the two targets (worst on long jumps).
+      tweenCancelRef.current?.();
+      tweenCancelRef.current = scrollToMessage(
         msg,
         settings.reducedMotion,
         idx >= 0 ? idx : 0,
@@ -1054,13 +1081,47 @@ export function Minimap({ adapter, settings }: Props) {
       // outline the message body (chatgpt's `[data-message-author-role]`
       // element) rather than the whole conversation-turn wrapper, which
       // also includes the role label and action row and produces a much
-      // baggier outline than feels right.
+      // baggier outline than feels right. for user messages we dig one
+      // level deeper to find the bubble, since the role wrapper spans the
+      // full column even when the bubble itself is only a few words wide.
+      const findBubble = (el: HTMLElement): HTMLElement => {
+        const outerWidth = el.offsetWidth;
+        const text = el.textContent || "";
+        if (!text || outerWidth === 0) return el;
+        // first descendant whose width is MEANINGFULLY narrower (>=8%) AND
+        // still contains effectively all the message text. the threshold
+        // skips intermediate full-width wrappers that are only marginally
+        // narrower because of parent padding — we want the actual bubble
+        // (user msgs) or, for a short assistant reply, the prose <p> sized
+        // to its text. long full-width content has no match and we fall
+        // back to the role element so the glow spans the column naturally.
+        const tightCap = outerWidth * 0.92;
+        for (const child of Array.from(el.querySelectorAll("*"))) {
+          if (!(child instanceof HTMLElement)) continue;
+          const w = child.offsetWidth;
+          if (w <= 0 || w >= tightCap) continue;
+          const childText = child.textContent || "";
+          if (childText.length < text.length * 0.9) continue;
+          return child;
+        }
+        return el;
+      };
+
       const applyHighlight = (turn: HTMLElement) => {
-        const inner =
+        const role =
           turn.querySelector<HTMLElement>("[data-message-author-role]") ?? turn;
-        inner.classList.add("chatmap-highlight");
+        const target = findBubble(role);
+        // clear any in-flight highlight on other messages so a rapid sequence
+        // of jumps fades the old ones out as the new one fades in, rather
+        // than leaving a trail of overlapping highlights.
+        document
+          .querySelectorAll(".chatmap-highlight")
+          .forEach((el) => {
+            if (el !== target) el.classList.remove("chatmap-highlight");
+          });
+        target.classList.add("chatmap-highlight");
         setTimeout(
-          () => inner.classList.remove("chatmap-highlight"),
+          () => target.classList.remove("chatmap-highlight"),
           HIGHLIGHT_DURATION_MS
         );
       };
@@ -1425,6 +1486,9 @@ export function Minimap({ adapter, settings }: Props) {
           }
           quickKeyLabel={
             formatKeybind(settings.keybinds.quickBookmark) || "B"
+          }
+          scrollNavLabel={
+            formatKeybind(settings.keybinds.scrollNav) || "Alt + Shift"
           }
           nextLabel={
             formatKeybind(settings.keybinds.nextImportant) || "Alt + Shift + S"

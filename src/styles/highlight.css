@@ -1,7 +1,0 @@
-/* injected into host page for the scroll-to highlight effect */
-.chatmap-highlight {
-  outline: 2px solid rgba(180, 180, 180, 0.45) !important;
-  outline-offset: 6px !important;
-  border-radius: 6px !important;
-  transition: outline 0.4s ease !important;
-}

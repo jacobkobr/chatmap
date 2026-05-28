@@ -181,6 +181,16 @@
   --accent-soft: rgba(163, 163, 163, 0.28);
   --accent-fg: #1a1a1a;
 }
+:host([data-accent="white"]) {
+  --m-user: #ffffff;
+  --m-asst: #d4d4d8;
+  --m-user-active: #ffffff;
+  --m-asst-active: #f4f4f5;
+  --accent: #fafafa;
+  --accent-hover: #ffffff;
+  --accent-soft: rgba(255, 255, 255, 0.22);
+  --accent-fg: #0a0a0a;
+}
 :host([data-accent="blue"]) {
   --m-user: #7dd3fc;
   --m-asst: #0369a1;
@@ -251,6 +261,14 @@
     --m-asst: #94a3b8;
     --m-user-active: #0f172a;
     --m-asst-active: #64748b;
+  }
+  /* white markers vanish on a white page — flip to near-black so the rail
+     stays usable even when the user picks the "white" accent in light mode. */
+  :host([data-accent="white"]) {
+    --m-user: #0a0a0a;
+    --m-asst: #525252;
+    --m-user-active: #000000;
+    --m-asst-active: #404040;
   }
 }
 
@@ -945,14 +963,13 @@
 }
 
 /* ── first-run tutorial card ─────────────────────────────────
-   floats mid-right of the viewport, just inboard of the rail. text-only
-   walkthrough — the body copy references the rail by direction so we
-   don't need to draw a pointer at it. */
+   bottom-right by default; user can drag by the header anywhere on screen
+   if it covers something they want to see (e.g. the bookmark editor that
+   pops out next to the rail during step 1). */
 .tutorial-card {
   position: fixed;
-  top: 50%;
-  right: 92px;
-  transform: translateY(-50%);
+  bottom: 24px;
+  right: 24px;
   width: 320px;
   z-index: 2147483646;
   pointer-events: auto;
@@ -984,6 +1001,12 @@
   justify-content: space-between;
   align-items: baseline;
   margin-bottom: 8px;
+  cursor: grab;
+  user-select: none;
+}
+
+.tutorial-card--dragging .tutorial-header {
+  cursor: grabbing;
 }
 
 .tutorial-title {
@@ -1056,6 +1079,47 @@
   color: #fff;
 }
 .tutorial-btn--primary:hover { background: #4f46e5; }
+.tutorial-btn--primary:disabled {
+  background: #4f46e5;
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* "✓ got it" state shown between completing an interactive step's action
+   and the tutorial auto-advancing. brief checkmark + label, replaces the
+   regular body content for the COMPLETE_DELAY_MS window. */
+.tutorial-success {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  animation: tutorial-pop 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.tutorial-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #10b981;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.tutorial-success-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: inherit;
+}
+
+@keyframes tutorial-pop {
+  0%   { transform: scale(0.85); opacity: 0; }
+  100% { transform: scale(1);    opacity: 1; }
+}
 
 /* ── scan offer popup ────────────────────────────────────────
    surfaces on first visit to a long conversation. user can scan

@@ -62,7 +62,7 @@ export interface ConvCache {
   offerDismissed: boolean;
 }
 
-export type AccentColor = "gray" | "blue" | "purple" | "green" | "orange" | "pink" | "sparkle";
+export type AccentColor = "gray" | "white" | "blue" | "purple" | "green" | "orange" | "pink" | "sparkle";
 
 export type MarkerSize = "normal" | "large";
 

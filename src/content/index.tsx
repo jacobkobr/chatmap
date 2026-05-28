@@ -43,6 +43,7 @@ function mountSync(settings: ChatMapSettings) {
   injectHighlightStyle();
 
   const { host, shadow } = createShadowHost(settings.accentColor, settings.markerSize);
+  document.documentElement.dataset.chatmapAccent = settings.accentColor;
   document.body.appendChild(host);
 
   const mountPoint = document.createElement("div");
@@ -69,6 +70,9 @@ async function mount() {
     const host = document.getElementById(MINIMAP_HOST_ID);
     host?.setAttribute("data-accent", settings.accentColor);
     host?.setAttribute("data-size", settings.markerSize);
+    // mirror onto <html> so the page-level highlight css (injected outside
+    // the shadow root) can pick the matching halo color.
+    document.documentElement.dataset.chatmapAccent = settings.accentColor;
     render(settings);
   } catch (_) {
     // storage read failed — defaults are already rendered, keep them
@@ -95,6 +99,9 @@ async function init() {
     const host = document.getElementById(MINIMAP_HOST_ID);
     host?.setAttribute("data-accent", settings.accentColor);
     host?.setAttribute("data-size", settings.markerSize);
+    // mirror onto <html> so the page-level highlight css (injected outside
+    // the shadow root) can pick the matching halo color.
+    document.documentElement.dataset.chatmapAccent = settings.accentColor;
     render(settings);
   });
 

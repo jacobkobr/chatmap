@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "ChatMap",
+  "name": "chatmap",
   "version": "1.0.0",
   "description": "Adds a hoverable minimap to long ChatGPT conversations so you can jump between messages, code blocks, links, and important answers.",
   "permissions": ["storage"],
   "action": {
-    "default_title": "ChatMap — settings",
+    "default_title": "chatmap — settings",
     "default_popup": "options/index.html",
     "default_icon": {
       "16": "icons/icon16.png",

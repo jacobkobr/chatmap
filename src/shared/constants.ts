@@ -2,7 +2,7 @@ export const MINIMAP_HOST_ID = "chatmap-host";
 export const PREVIEW_CHAR_LIMIT = 160;
 export const LONG_ANSWER_THRESHOLD = 1500;
 export const DEBOUNCE_MS = 250;
-export const HIGHLIGHT_DURATION_MS = 1200;
+export const HIGHLIGHT_DURATION_MS = 1500;
 // only suppress totally empty assistant placeholders (rare — a brief moment
 // while the stream is initializing). previously 12, which ate legitimate
 // short replies in instant-answer mode ("hih", "ok", "yes") and made the
@@ -54,7 +54,7 @@ export const DEFAULT_SETTINGS = {
   reducedMotion: false,
   navHighlight: true,
   markerSize: "normal" as const,
-  accentColor: "gray" as const,
+  accentColor: "white" as const,
   chatLoadMode: "api" as const,
   keybinds: DEFAULT_KEYBINDS,
   quickBookmarkColor: "#ec4899",

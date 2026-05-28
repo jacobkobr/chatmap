@@ -57,11 +57,15 @@ function stripMarkdown(t: string): string {
   t = t.replace(/\*([^*\n]+)\*/g, "$1");
   t = t.replace(/(?<!\w)_([^_\n]+)_(?!\w)/g, "$1");
   t = t.replace(/~~([^~]+)~~/g, "$1");
-  // line-leading syntax: headings, blockquotes, list bullets
-  t = t.replace(/^#{1,6}\s+/gm, "");
-  t = t.replace(/^>\s+/gm, "");
-  t = t.replace(/^[-*+]\s+/gm, "");
-  t = t.replace(/^\d+\.\s+/gm, "");
+  // line-leading syntax: headings, blockquotes, list bullets. each requires
+  // non-whitespace content AFTER the marker before stripping — otherwise
+  // a message that is itself a bare marker (e.g. an assistant answer of
+  // "25." rendered as a list, "- " alone, etc.) would get eaten to empty
+  // and the preview popup would be blank.
+  t = t.replace(/^#{1,6}\s+(?=\S)/gm, "");
+  t = t.replace(/^>\s+(?=\S)/gm, "");
+  t = t.replace(/^[-*+]\s+(?=\S)/gm, "");
+  t = t.replace(/^\d+\.\s+(?=\S)/gm, "");
   return t;
 }
 

@@ -46,7 +46,7 @@ This creates a `dist` folder.
 4. Select the `dist` folder from this repo
 5. Refresh ChatGPT
 
-ChatMap should now appear on ChatGPT conversations.
+chatmap should now appear on ChatGPT conversations.
 
 ## Usage
 
