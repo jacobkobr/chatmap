@@ -58,6 +58,8 @@ export const DEFAULT_SETTINGS = {
   chatLoadMode: "api" as const,
   keybinds: DEFAULT_KEYBINDS,
   quickBookmarkColor: "#ec4899",
+  tutorialState: "pending" as const,
+  tutorialStep: 0,
 };
 
 export const BOOKMARKS_STORAGE_KEY = "chatmap-bookmarks";

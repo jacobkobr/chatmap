@@ -944,6 +944,119 @@
   background: rgba(248, 113, 113, 0.12);
 }
 
+/* ── first-run tutorial card ─────────────────────────────────
+   floats mid-right of the viewport, just inboard of the rail. text-only
+   walkthrough — the body copy references the rail by direction so we
+   don't need to draw a pointer at it. */
+.tutorial-card {
+  position: fixed;
+  top: 50%;
+  right: 92px;
+  transform: translateY(-50%);
+  width: 320px;
+  z-index: 2147483646;
+  pointer-events: auto;
+  background: rgba(20, 22, 28, 0.72);
+  color: #f1f5f9;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 14px;
+  padding: 14px 16px;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.42);
+  animation: preview-fade-in 160ms ease;
+}
+
+@media (prefers-color-scheme: light) {
+  .tutorial-card {
+    background: rgba(255, 255, 255, 0.82);
+    color: #0f172a;
+    border-color: rgba(15, 23, 42, 0.12);
+    box-shadow: 0 14px 38px rgba(15, 23, 42, 0.16);
+  }
+}
+
+.tutorial-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+
+.tutorial-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+.tutorial-step {
+  font-size: 11px;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-color-scheme: light) {
+  .tutorial-step { color: #64748b; }
+}
+
+.tutorial-body { margin-bottom: 12px; }
+.tutorial-body p { margin: 0 0 8px; }
+.tutorial-body p:last-child { margin-bottom: 0; }
+
+.tutorial-body kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  margin: 0 1px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  font: 600 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: inherit;
+}
+
+@media (prefers-color-scheme: light) {
+  .tutorial-body kbd {
+    border-color: rgba(15, 23, 42, 0.18);
+    background: rgba(15, 23, 42, 0.05);
+  }
+}
+
+.tutorial-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.tutorial-btn {
+  border: none;
+  border-radius: 7px;
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.tutorial-btn--ghost {
+  background: transparent;
+  color: #94a3b8;
+}
+.tutorial-btn--ghost:hover { color: #f1f5f9; }
+@media (prefers-color-scheme: light) {
+  .tutorial-btn--ghost { color: #64748b; }
+  .tutorial-btn--ghost:hover { color: #0f172a; }
+}
+
+.tutorial-btn--primary {
+  background: #6366f1;
+  color: #fff;
+}
+.tutorial-btn--primary:hover { background: #4f46e5; }
+
 /* ── scan offer popup ────────────────────────────────────────
    surfaces on first visit to a long conversation. user can scan
    (step-walks scroll positions to force chatgpt's lazy-load to

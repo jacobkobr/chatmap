@@ -10,6 +10,7 @@ import { Marker } from "./Marker";
 import { PreviewCard } from "./PreviewCard";
 import { BookmarkEditor } from "./BookmarkEditor";
 import { ScanOffer } from "./ScanOffer";
+import { Tutorial } from "./Tutorial";
 import { useBookmarks } from "./useBookmarks";
 import { isMarkerVisible } from "./markerClassifier";
 import {
@@ -19,7 +20,8 @@ import {
   setBookmark,
   deleteBookmark,
 } from "../storage/bookmarks";
-import { matchesKeybind } from "../shared/keybinds";
+import { saveSettings } from "../storage/settings";
+import { matchesKeybind, formatKeybind } from "../shared/keybinds";
 import { DESKTOP_MIN_WIDTH, HIGHLIGHT_DURATION_MS } from "../shared/constants";
 
 interface Props {
@@ -354,6 +356,10 @@ export function Minimap({ adapter, settings }: Props) {
   // keybind). drives the floating callout that animates out of the
   // active marker. -1 = no callout shown.
   const [navCalloutIdx, setNavCalloutIdx] = useState(-1);
+  // after a click-driven navigation the active highlight should track the
+  // clicked marker, not whatever compute() lands on once the smooth scroll
+  // settles. holds the target until the user actually scrolls again.
+  const [clickLockIdx, setClickLockIdx] = useState(-1);
   const navCalloutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // last marker idx reached via alt+shift+scroll. used as the anchor for
   // the next wheel event so chained scrolls advance reliably even before
@@ -370,6 +376,13 @@ export function Minimap({ adapter, settings }: Props) {
   const walkCurRef = useRef(-1);
   const walkTargetRef = useRef(-1);
   const walkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // mirrors clickLockIdx for read inside the active-marker effect without
+  // making it a dep (which would tear the effect down on every click).
+  const clickLockIdxRef = useRef(-1);
+  // last conversation id the walk operated on. when this changes the walk's
+  // running indices belong to the previous chat — they're meaningless in the
+  // new visible[] and must be reset before compute() runs again.
+  const lastConvIdRef = useRef<string | null>(null);
   // last bookmark idx visited via keybind nav. lets us advance/retreat in
   // rail order even when the visible-extent active tracker has drifted to
   // a neighboring message (e.g. a long assistant turn right after a short
@@ -390,6 +403,10 @@ export function Minimap({ adapter, settings }: Props) {
   const [showScanOffer, setShowScanOffer] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
+  // monotonic counter the tutorial watches to detect the quick-bookmark
+  // keybind specifically (vs an editor-saved bookmark, which also grows the
+  // bookmark map). bumped inside the quickBookmark keydown handler.
+  const [quickBookmarkFires, setQuickBookmarkFires] = useState(0);
   const bookmarks = useBookmarks();
   const convId = useMemo(() => getConversationId(), [messages.length]);
 
@@ -725,7 +742,13 @@ export function Minimap({ adapter, settings }: Props) {
       return;
     }
 
-    const firstLive = resolveTarget(visible[0]);
+    // find the scroll container off any in-dom message — not just visible[0].
+    // entering an old chat lands the user at the bottom, where visible[0] (the
+    // first message of the conversation) is virtualized out. without a
+    // fallback, container resolves to null → scrollTarget=window → and the
+    // listener never hears chatgpt's internal scroll events, so compute()
+    // doesn't fire until the user scrolls so far up that visible[0] mounts.
+    const firstLive = resolveTarget(visible[0]) ?? anyLiveTurn();
     const container = firstLive ? findScrollContainer(firstLive) : null;
     const scrollTarget: HTMLElement | Window = container ?? window;
 
@@ -772,6 +795,21 @@ export function Minimap({ adapter, settings }: Props) {
       const step = () => {
         walkTimerRef.current = null;
         if (walkCurRef.current === walkTargetRef.current) return;
+        // if either end of the walk is out of range for the current visible[]
+        // (chat just changed or markers got filtered out under us), snap to
+        // target instead of stepping — stepping would address indices that
+        // don't correspond to any marker, leaving no highlight at all.
+        if (
+          walkTargetRef.current < 0 ||
+          walkTargetRef.current >= visible.length ||
+          walkCurRef.current < 0 ||
+          walkCurRef.current >= visible.length
+        ) {
+          commit(
+            Math.max(0, Math.min(visible.length - 1, walkTargetRef.current))
+          );
+          return;
+        }
         const remaining = Math.abs(
           walkTargetRef.current - walkCurRef.current
         );
@@ -809,6 +847,12 @@ export function Minimap({ adapter, settings }: Props) {
 
     const compute = () => {
       raf = 0;
+      // freeze the walk while a click-lock is in flight. otherwise the
+      // smooth-scroll's own scroll events drive compute, which can
+      // boundary-force the walk to lastVisible/firstVisible — and once the
+      // lock releases, the user sees the highlight jump to whatever stale
+      // position the walk landed on.
+      if (clickLockIdxRef.current >= 0) return;
       const { top: vTop, bottom: vBot } = getViewBounds();
       const viewportH = vBot - vTop;
       if (viewportH <= 0) return;
@@ -907,6 +951,64 @@ export function Minimap({ adapter, settings }: Props) {
     };
   }, [visible, markRead]);
 
+  // mirror clickLockIdx to a ref so compute() can read it without
+  // re-subscribing to the scroll listener on every change.
+  useEffect(() => {
+    clickLockIdxRef.current = clickLockIdx;
+  }, [clickLockIdx]);
+
+  // reset the walk state when the conversation changes. walkCurRef/walkTargetRef
+  // persist across the active-marker effect's re-runs (deliberate, to survive
+  // chatgpt virtualizing turns mid-walk), but those persistent values are
+  // stale when the user jumps into a different chat — they point at indices
+  // that mean a different message in the new visible[]. without this, the
+  // walk runs a long catch-up across nonsensical indices on chat-enter and
+  // some rail markers briefly flash while others never get highlighted at all.
+  //
+  // crucially: only reset on a real transition between two known ids, NOT on
+  // the initial mount (null → "abc"), because this effect runs AFTER the
+  // active-marker effect — resetting on first mount would wipe the first
+  // compute()'s result and leave nothing highlighted until a scroll fires.
+  useEffect(() => {
+    const prev = lastConvIdRef.current;
+    lastConvIdRef.current = convId;
+    if (!prev || !convId || prev === convId) return;
+    walkCurRef.current = -1;
+    walkTargetRef.current = -1;
+    if (walkTimerRef.current) {
+      clearTimeout(walkTimerRef.current);
+      walkTimerRef.current = null;
+    }
+    setActiveIdx(-1);
+  }, [convId]);
+
+  // release the click-lock as soon as the user actually scrolls or hits a
+  // scroll-relevant key. mirrors the same input set the smooth-scroll uses
+  // to detect "the user wants to take over." also expires on a long safety
+  // timeout so a stale lock never sticks forever.
+  useEffect(() => {
+    if (clickLockIdx < 0) return;
+    const release = () => setClickLockIdx(-1);
+    const onKey = (e: KeyboardEvent) => {
+      if (
+        e.key === "ArrowUp" || e.key === "ArrowDown" ||
+        e.key === "PageUp" || e.key === "PageDown" ||
+        e.key === "Home"   || e.key === "End"      ||
+        e.key === " "
+      ) release();
+    };
+    window.addEventListener("wheel", release, { passive: true });
+    window.addEventListener("touchstart", release, { passive: true });
+    document.addEventListener("keydown", onKey);
+    const safety = setTimeout(release, 8000);
+    return () => {
+      window.removeEventListener("wheel", release);
+      window.removeEventListener("touchstart", release);
+      document.removeEventListener("keydown", onKey);
+      clearTimeout(safety);
+    };
+  }, [clickLockIdx]);
+
   // briefly show the callout next to a marker the user just jumped to.
   // re-keyed by idx so the bubble animation replays on each step. dismiss
   // timer is reset on every call so a burst of wheel-navs keeps it visible
@@ -925,7 +1027,21 @@ export function Minimap({ adapter, settings }: Props) {
     (msg: ChatMessageRecord) => {
       suppressRefresh(900);
       const idx = visible.indexOf(msg);
-      if (idx >= 0) showNavCallout(idx);
+      if (idx >= 0) {
+        showNavCallout(idx);
+        setClickLockIdx(idx);
+        // also force the underlying walk state to the click target so that
+        // when the lock releases, compute() resumes from a sane position
+        // instead of from whatever the smooth-scroll boundary-forced it to
+        // (e.g. snap(lastVisible) when the target sits near the chat bottom).
+        setActiveIdx(idx);
+        walkCurRef.current = idx;
+        walkTargetRef.current = idx;
+        if (walkTimerRef.current) {
+          clearTimeout(walkTimerRef.current);
+          walkTimerRef.current = null;
+        }
+      }
       scrollToMessage(
         msg,
         settings.reducedMotion,
@@ -1158,6 +1274,10 @@ export function Minimap({ adapter, settings }: Props) {
       if (tag === "INPUT" || tag === "TEXTAREA" || t?.isContentEditable) return;
       if (!matchesKeybind(e, quickBookmark)) return;
       e.preventDefault();
+      // bump the counter even before idx is resolved so the tutorial sees the
+      // keypress itself, not just successful saves. (a press with no active
+      // marker shouldn't fail the lesson.)
+      setQuickBookmarkFires((n) => n + 1);
       const idx =
         navCalloutIdx >= 0 && navCalloutIdx < visible.length
           ? navCalloutIdx
@@ -1243,8 +1363,12 @@ export function Minimap({ adapter, settings }: Props) {
   // during navigation the visible-extent tracker lags behind the smooth
   // scroll target — promote the nav-callout target so the highlighted
   // marker stays in sync with where the user is actually scrolling to.
+  // click-lock wins over the nav-callout override (same target, longer life)
+  // which wins over compute's scroll-driven activeIdx.
   const effectiveActiveIdx =
-    navCalloutIdx >= 0 && navCalloutIdx < visible.length
+    clickLockIdx >= 0 && clickLockIdx < visible.length
+      ? clickLockIdx
+      : navCalloutIdx >= 0 && navCalloutIdx < visible.length
       ? navCalloutIdx
       : activeIdx;
 
@@ -1263,6 +1387,24 @@ export function Minimap({ adapter, settings }: Props) {
     return sentence.length < text.length ? `${sentence}…` : sentence;
   }
 
+  // tutorial gating: only show on a non-empty chat (so there's something to
+  // demo on) and only while the user hasn't completed or dismissed it. step
+  // is bounded so a stale future value never re-opens it.
+  const tutorialActive =
+    settings.tutorialState === "pending" &&
+    settings.tutorialStep < 3 &&
+    messages.length >= 2;
+
+  const handleTutorialAdvance = useCallback(() => {
+    saveSettings({ ...settings, tutorialStep: settings.tutorialStep + 1 });
+  }, [settings]);
+  const handleTutorialSkip = useCallback(() => {
+    saveSettings({ ...settings, tutorialState: "skipped" });
+  }, [settings]);
+  const handleTutorialComplete = useCallback(() => {
+    saveSettings({ ...settings, tutorialState: "completed" });
+  }, [settings]);
+
   return (
     <>
       {showScanOffer && (
@@ -1271,6 +1413,28 @@ export function Minimap({ adapter, settings }: Props) {
           progress={scanProgress}
           onScan={runScan}
           onDismiss={handleDismissScan}
+        />
+      )}
+      {tutorialActive && (
+        <Tutorial
+          step={settings.tutorialStep}
+          bookmarkCount={Object.keys(bookmarks).length}
+          quickBookmarkFireCount={quickBookmarkFires}
+          modifierLabel={
+            formatKeybind(settings.keybinds.editBookmark) || "Alt + Shift"
+          }
+          quickKeyLabel={
+            formatKeybind(settings.keybinds.quickBookmark) || "B"
+          }
+          nextLabel={
+            formatKeybind(settings.keybinds.nextImportant) || "Alt + Shift + S"
+          }
+          prevLabel={
+            formatKeybind(settings.keybinds.prevImportant) || "Alt + Shift + W"
+          }
+          onAdvance={handleTutorialAdvance}
+          onSkip={handleTutorialSkip}
+          onComplete={handleTutorialComplete}
         />
       )}
       <div

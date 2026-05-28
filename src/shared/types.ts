@@ -110,7 +110,16 @@ export interface ChatMapSettings {
   keybinds: ChatMapKeybinds;
   // color used when the quick-bookmark keybind drops a no-name bookmark
   quickBookmarkColor: string;
+  // first-run walkthrough state. "pending" means show the tutorial once the
+  // user is in a chat with enough content to demo on. once completed or
+  // skipped we don't pop it again unless the user resets it from settings.
+  tutorialState: TutorialState;
+  // current step within the walkthrough so a refresh or chat switch resumes
+  // where the user left off instead of restarting.
+  tutorialStep: number;
 }
+
+export type TutorialState = "pending" | "completed" | "skipped";
 
 // per-message annotation. keyed by `${convId}|${domAnchor}` in storage so
 // the bookmark survives reloads of the same conversation. fields are all
