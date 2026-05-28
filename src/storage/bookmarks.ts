@@ -1,5 +1,6 @@
 import type { BookmarkMap, MessageBookmark } from "../shared/types";
 import { BOOKMARKS_STORAGE_KEY } from "../shared/constants";
+import { isExtensionAlive } from "../shared/extensionContext";
 
 // extract the chatgpt conversation id from the current url. used as part
 // of the bookmark key so two different chats can have bookmarks on the
@@ -38,6 +39,8 @@ export function legacyBookmarkKey(
 }
 
 export async function loadBookmarks(): Promise<BookmarkMap> {
+  // dead context can't read storage — return empty rather than throwing
+  if (!isExtensionAlive()) return {};
   return new Promise((resolve) => {
     chrome.storage.local.get(BOOKMARKS_STORAGE_KEY, (result) => {
       resolve((result[BOOKMARKS_STORAGE_KEY] as BookmarkMap) ?? {});
@@ -49,6 +52,9 @@ export async function setBookmark(
   key: string,
   bookmark: MessageBookmark
 ): Promise<void> {
+  // surface a dead context to the caller so the save can prompt a reload
+  // instead of silently doing nothing.
+  if (!isExtensionAlive()) throw new Error("extension context invalidated");
   const all = await loadBookmarks();
   all[key] = bookmark;
   await new Promise<void>((resolve) => {
@@ -57,6 +63,7 @@ export async function setBookmark(
 }
 
 export async function deleteBookmark(key: string): Promise<void> {
+  if (!isExtensionAlive()) throw new Error("extension context invalidated");
   const all = await loadBookmarks();
   if (!(key in all)) return;
   delete all[key];

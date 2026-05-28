@@ -1,11 +1,13 @@
 import type { CachedMarker, ConvCache } from "../shared/types";
 import { MARKER_CACHE_STORAGE_KEY } from "../shared/constants";
+import { isExtensionAlive } from "../shared/extensionContext";
 
 type CacheMap = Record<string, ConvCache>;
 
 // load the cache entry for a single conversation. returns null when nothing
 // has been stored for it yet — caller treats that as a fresh chat.
 export async function loadCache(convId: string): Promise<ConvCache | null> {
+  if (!isExtensionAlive()) return null;
   return new Promise((resolve) => {
     chrome.storage.local.get(MARKER_CACHE_STORAGE_KEY, (result) => {
       const all = (result[MARKER_CACHE_STORAGE_KEY] as CacheMap) ?? {};
@@ -20,6 +22,7 @@ export async function saveCache(
   convId: string,
   patch: Partial<ConvCache>
 ): Promise<void> {
+  if (!isExtensionAlive()) return;
   return new Promise((resolve) => {
     chrome.storage.local.get(MARKER_CACHE_STORAGE_KEY, (result) => {
       const all = (result[MARKER_CACHE_STORAGE_KEY] as CacheMap) ?? {};

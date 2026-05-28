@@ -1,5 +1,6 @@
 import type { ChatMapSettings } from "../shared/types";
 import { DEFAULT_SETTINGS } from "../shared/constants";
+import { isExtensionAlive } from "../shared/extensionContext";
 
 const STORAGE_KEY = "chatmap_settings";
 
@@ -18,6 +19,7 @@ function mergeSettings(saved: Partial<ChatMapSettings> | undefined): ChatMapSett
 }
 
 export async function loadSettings(): Promise<ChatMapSettings> {
+  if (!isExtensionAlive()) return mergeSettings(undefined);
   return new Promise((resolve) => {
     chrome.storage.local.get(STORAGE_KEY, (result) => {
       const saved = result[STORAGE_KEY] as Partial<ChatMapSettings> | undefined;
