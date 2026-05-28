@@ -1,6 +1,6 @@
 {
   "name": "chatmap",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "right-side minimap for chatgpt conversations",
   "private": true,
   "scripts": {
