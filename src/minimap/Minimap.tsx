@@ -1074,13 +1074,13 @@ export function Minimap({ adapter, settings }: Props) {
     }
 
     function onKey(e: KeyboardEvent) {
-      // ignore when typing in an input/textarea — don't steal user keystrokes
-      const tag = (e.target as HTMLElement | null)?.tagName;
-      if (
-        tag === "INPUT" ||
-        tag === "TEXTAREA" ||
-        (e.target as HTMLElement | null)?.isContentEditable
-      ) {
+      // ignore when typing in an input/textarea — don't steal user keystrokes.
+      // events that originate inside our shadow root get retargeted to the
+      // host on the way out, so e.target is the host (a div) and the tagname
+      // check passes through. composedPath()[0] is the real innermost element.
+      const real = (e.composedPath()[0] ?? e.target) as HTMLElement | null;
+      const tag = real?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || real?.isContentEditable) {
         return;
       }
       if (matchesKeybind(e, nextImportant)) {
@@ -1149,7 +1149,11 @@ export function Minimap({ adapter, settings }: Props) {
     if (visible.length === 0) return;
 
     function onKey(e: KeyboardEvent) {
-      const t = e.target as HTMLElement | null;
+      // composedPath()[0] sees through the shadow boundary; e.target alone
+      // returns our shadow host (a div) when the user is typing inside the
+      // bookmark editor, which would let the quick-bookmark keybind fire
+      // while they're trying to enter a 'b' in the name/note fields.
+      const t = (e.composedPath()[0] ?? e.target) as HTMLElement | null;
       const tag = t?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || t?.isContentEditable) return;
       if (!matchesKeybind(e, quickBookmark)) return;
