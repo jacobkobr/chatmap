@@ -129,7 +129,7 @@ function ModifierEditor({
     ["altKey", "Alt"],
     ["shiftKey", "Shift"],
     ["ctrlKey", "Ctrl"],
-    ["metaKey", "Meta"],
+    ["metaKey", "⌘"],
   ] as const;
 
   return (
@@ -242,6 +242,17 @@ function OptionsApp() {
     }));
   }
 
+  // re-arm the first-run walkthrough. settings sync to chrome.storage, which
+  // the content script listens to, so any open chatgpt tab will surface the
+  // tutorial card the next time react re-renders (effectively immediately).
+  function restartTutorial() {
+    setSettings((prev) => ({
+      ...prev,
+      tutorialState: "pending",
+      tutorialStep: 0,
+    }));
+  }
+
   return (
     <main className="options-root" data-accent={settings.accentColor}>
 
@@ -271,6 +282,14 @@ function OptionsApp() {
           value={settings.markerSize}
           onChange={(v) => update({ markerSize: v })}
         />
+
+        <button
+          type="button"
+          className="reset-btn"
+          onClick={restartTutorial}
+        >
+          Restart tutorial
+        </button>
       </section>
 
       <section className="options-card">
