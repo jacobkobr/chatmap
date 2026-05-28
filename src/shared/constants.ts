@@ -52,6 +52,7 @@ export const DEFAULT_SETTINGS = {
   showUserMessages: true,
   showAssistantMessages: true,
   reducedMotion: false,
+  navHighlight: true,
   accentColor: "gray" as const,
   chatLoadMode: "api" as const,
   keybinds: DEFAULT_KEYBINDS,

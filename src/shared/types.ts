@@ -98,6 +98,10 @@ export interface ChatMapSettings {
   showUserMessages: boolean;
   showAssistantMessages: boolean;
   reducedMotion: boolean;
+  // brief outline drawn around the target message after a marker click. some
+  // users find the flash distracting; turning this off keeps the scroll-to
+  // behavior but skips the outline.
+  navHighlight: boolean;
   accentColor: AccentColor;
   chatLoadMode: ChatLoadMode;
   keybinds: ChatMapKeybinds;

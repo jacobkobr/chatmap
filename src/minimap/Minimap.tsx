@@ -933,6 +933,8 @@ export function Minimap({ adapter, settings }: Props) {
         visible.length
       );
 
+      if (!settings.navHighlight) return;
+
       // outline the message body (chatgpt's `[data-message-author-role]`
       // element) rather than the whole conversation-turn wrapper, which
       // also includes the role label and action row and produces a much
@@ -966,7 +968,7 @@ export function Minimap({ adapter, settings }: Props) {
       };
       setTimeout(poll, 240);
     },
-    [suppressRefresh, settings.reducedMotion, visible, showNavCallout]
+    [suppressRefresh, settings.reducedMotion, settings.navHighlight, visible, showNavCallout]
   );
 
   // marker click — same scroll but resets the keybind-nav anchor so the

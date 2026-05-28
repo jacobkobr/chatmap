@@ -212,6 +212,12 @@ function OptionsApp() {
           checked={settings.reducedMotion}
           onChange={(v) => update({ reducedMotion: v })}
         />
+
+        <Toggle
+          label="Highlight message on jump"
+          checked={settings.navHighlight}
+          onChange={(v) => update({ navHighlight: v })}
+        />
       </section>
 
       <section className="options-card">
