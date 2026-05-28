@@ -86,6 +86,41 @@
   height: 0;
 }
 
+/* ── large-size overrides ─────────────────────────────────── */
+/* both the rail strip and the individual markers scale up so the size
+   change reads as "chunkier rail" rather than just "fatter lines". */
+:host([data-size="large"]) .rail { width: 30px; }
+:host([data-size="large"]) .rail:hover,
+:host([data-size="large"]) .rail--expanded { width: 36px; }
+:host([data-size="large"]) .marker { height: 5px; border-radius: 3px; }
+
+/* popups (hover preview + bookmark editor) scale with the larger rail so
+   the typography stays in proportion. only the container box, primary text
+   and interactive inputs grow — meta labels stay compact. */
+:host([data-size="large"]) .preview-card {
+  width: 288px;
+  padding: 13px 15px;
+  font-size: 13.5px;
+}
+:host([data-size="large"]) .preview-text { font-size: 13.5px; }
+:host([data-size="large"]) .preview-bookmark-name { font-size: 13px; }
+:host([data-size="large"]) .preview-bookmark-note { font-size: 12.5px; }
+
+:host([data-size="large"]) .bookmark-editor {
+  width: 308px;
+  padding: 14px;
+  font-size: 14px;
+}
+:host([data-size="large"]) .be-input,
+:host([data-size="large"]) .be-textarea {
+  font-size: 13.5px;
+  padding: 7px 10px;
+}
+:host([data-size="large"]) .be-btn {
+  font-size: 12.5px;
+  padding: 7px 14px;
+}
+
 /* ── tick marker ─────────────────────────────────────────── */
 .marker {
   position: relative;

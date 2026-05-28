@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { loadSettings, saveSettings } from "../storage/settings";
-import type { Keybind, ChatMapKeybinds, ChatMapSettings } from "../shared/types";
+import type {
+  Keybind,
+  ChatMapKeybinds,
+  ChatMapSettings,
+  MarkerSize,
+} from "../shared/types";
 import { DEFAULT_KEYBINDS, DEFAULT_SETTINGS } from "../shared/constants";
 import { formatKeybind } from "../shared/keybinds";
 import "./options.css";
@@ -36,6 +41,49 @@ function Toggle({
       >
         <span className="toggle-thumb" />
       </button>
+    </div>
+  );
+}
+
+function SizePicker({
+  value,
+  onChange,
+}: {
+  value: MarkerSize;
+  onChange: (v: MarkerSize) => void;
+}) {
+  // mini rail preview — 4 alternating short/long bars stacked on a dark
+  // strip, scaled per-option so the visual change tracks the actual rail.
+  function Preview({ size }: { size: MarkerSize }) {
+    const big = size === "large";
+    return (
+      <div className={`size-preview${big ? " size-preview--lg" : ""}`}>
+        <div className="size-bar size-bar--short" />
+        <div className="size-bar size-bar--long" />
+        <div className="size-bar size-bar--short" />
+        <div className="size-bar size-bar--long" />
+      </div>
+    );
+  }
+  return (
+    <div className="size-picker">
+      <div className="size-picker-label">Marker size</div>
+      <div className="size-picker-row">
+        {(["normal", "large"] as const).map((s) => (
+          <button
+            key={s}
+            type="button"
+            className={`size-card${value === s ? " size-card--on" : ""}`}
+            onClick={() => onChange(s)}
+            aria-pressed={value === s}
+          >
+            <Preview size={s} />
+            <span className="size-card-label">
+              {s === "normal" ? "Normal" : "Large"}
+            </span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -217,6 +265,11 @@ function OptionsApp() {
           label="Highlight message on jump"
           checked={settings.navHighlight}
           onChange={(v) => update({ navHighlight: v })}
+        />
+
+        <SizePicker
+          value={settings.markerSize}
+          onChange={(v) => update({ markerSize: v })}
         />
       </section>
 

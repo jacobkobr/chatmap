@@ -459,6 +459,90 @@ button {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+/* ── size picker (normal vs large markers) ────────────────── */
+.size-picker {
+  padding: 8px 0 4px;
+}
+
+.size-picker-label {
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.size-picker-row {
+  display: flex;
+  gap: 10px;
+}
+
+.size-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 68px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.size-card:hover {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+.size-card--on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.size-card-label {
+  font-size: 12px;
+}
+
+/* mini rail preview: dark vertical strip with stacked bars, sized per option */
+.size-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2.5px;
+  width: 16px;
+  height: 30px;
+  padding: 3px 2.5px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+}
+
+.size-preview--lg {
+  width: 20px;
+  gap: 3.5px;
+  height: 32px;
+}
+
+.size-bar {
+  height: 2px;
+  border-radius: 1.5px;
+  background: var(--muted);
+}
+
+.size-preview--lg .size-bar {
+  height: 3.5px;
+  border-radius: 2px;
+}
+
+.size-bar--short { width: 50%; }
+.size-bar--long  { width: 90%; }
+
+.size-card--on .size-bar { background: var(--accent); }
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

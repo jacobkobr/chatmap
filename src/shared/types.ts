@@ -64,6 +64,8 @@ export interface ConvCache {
 
 export type AccentColor = "gray" | "blue" | "purple" | "green" | "orange" | "pink" | "sparkle";
 
+export type MarkerSize = "normal" | "large";
+
 // how to populate the rail on conversation open.
 //   - "api":  fetch the conversation from chatgpt's own backend on load,
 //             giving instant full coverage with zero scrolling
@@ -102,6 +104,7 @@ export interface ChatMapSettings {
   // users find the flash distracting; turning this off keeps the scroll-to
   // behavior but skips the outline.
   navHighlight: boolean;
+  markerSize: MarkerSize;
   accentColor: AccentColor;
   chatLoadMode: ChatLoadMode;
   keybinds: ChatMapKeybinds;
