@@ -67,7 +67,7 @@ function SizePicker({
   }
   return (
     <div className="size-picker">
-      <div className="size-picker-label">Marker size</div>
+      <div className="size-picker-label">Size</div>
       <div className="size-picker-row">
         {(["normal", "large"] as const).map((s) => (
           <button
