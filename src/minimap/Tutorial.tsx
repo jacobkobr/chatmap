@@ -175,6 +175,9 @@ export function Tutorial({
           <kbd>{nextLabel}</kbd> to jump between bookmarks. Hover any marker
           for a preview.
         </p>
+        <p className="tutorial-hint">
+          You can restart this walkthrough anytime from settings.
+        </p>
       </>
     );
     primaryLabel = "Done";

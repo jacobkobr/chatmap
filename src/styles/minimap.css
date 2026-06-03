@@ -1029,6 +1029,20 @@
 .tutorial-body p { margin: 0 0 8px; }
 .tutorial-body p:last-child { margin-bottom: 0; }
 
+.tutorial-body .tutorial-hint {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  opacity: 0.65;
+}
+
+@media (prefers-color-scheme: light) {
+  .tutorial-body .tutorial-hint {
+    border-top-color: rgba(15, 23, 42, 0.1);
+  }
+}
+
 .tutorial-body kbd {
   display: inline-block;
   padding: 1px 6px;
