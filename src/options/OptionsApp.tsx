@@ -278,6 +278,12 @@ function OptionsApp() {
           onChange={(v) => update({ navHighlight: v })}
         />
 
+        <Toggle
+          label="Show only bookmarked messages"
+          checked={settings.bookmarksOnly}
+          onChange={(v) => update({ bookmarksOnly: v })}
+        />
+
         <SizePicker
           value={settings.markerSize}
           onChange={(v) => update({ markerSize: v })}
@@ -394,6 +400,17 @@ function OptionsApp() {
             />
             <span className="kb-row-suffix">+ Scroll</span>
           </div>
+        </div>
+
+        <div className="kb-row">
+          <div className="kb-row-label">
+            Toggle bookmarks-only view
+            <span className="kb-row-hint">hide non-bookmarked markers</span>
+          </div>
+          <KeyRecorder
+            bind={settings.keybinds.toggleBookmarksOnly}
+            onChange={(next) => updateBind("toggleBookmarksOnly", next)}
+          />
         </div>
 
         <button type="button" className="reset-btn" onClick={resetKeybinds}>

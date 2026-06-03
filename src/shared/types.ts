@@ -93,6 +93,8 @@ export interface ChatMapKeybinds {
   // single-key bookmark toggle on the active marker. ignored while focus
   // is in a text input so it doesn't fire while typing in the chat box.
   quickBookmark: Keybind;
+  // toggle the bookmarks-only rail filter on the fly.
+  toggleBookmarksOnly: Keybind;
 }
 
 export interface ChatMapSettings {
@@ -117,6 +119,9 @@ export interface ChatMapSettings {
   // current step within the walkthrough so a refresh or chat switch resumes
   // where the user left off instead of restarting.
   tutorialStep: number;
+  // when on, the rail only shows messages that have a bookmark. toggled at
+  // runtime via keybind so a long-chat reader can switch into "outline" view.
+  bookmarksOnly: boolean;
 }
 
 export type TutorialState = "pending" | "completed" | "skipped";

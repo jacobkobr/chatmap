@@ -433,10 +433,16 @@ export function Minimap({ adapter, settings }: Props) {
   const bookmarks = useBookmarks();
   const convId = useMemo(() => getConversationId(), [messages.length]);
 
-  const visible = useMemo(
-    () => messages.filter((m) => isMarkerVisible(m, settings)),
-    [messages, settings]
-  );
+  const visible = useMemo(() => {
+    const base = messages.filter((m) => isMarkerVisible(m, settings));
+    if (!settings.bookmarksOnly) return base;
+    return base.filter((m) => {
+      const k = bookmarkKey(convId, m.domAnchor, m.chatgptMsgId);
+      if (k && bookmarks[k]) return true;
+      const legacy = legacyBookmarkKey(convId, m.domAnchor);
+      return !!(legacy && bookmarks[legacy]);
+    });
+  }, [messages, settings, bookmarks, convId]);
 
   // resolve a bookmark for a message (or undefined). cheap to call from
   // the render loop since the lookup is O(1).
@@ -1375,6 +1381,23 @@ export function Minimap({ adapter, settings }: Props) {
     convId,
     bookmarkFor,
   ]);
+
+  // toggle the bookmarks-only rail filter via keybind. ignores typing-in-input
+  // focus the same way the other keybinds do.
+  useEffect(() => {
+    const { toggleBookmarksOnly } = settings.keybinds;
+    function onKey(e: KeyboardEvent) {
+      const t = (e.composedPath()[0] ?? e.target) as HTMLElement | null;
+      const tag = t?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || t?.isContentEditable) return;
+      if (toggleBookmarksOnly && matchesKeybind(e, toggleBookmarksOnly)) {
+        e.preventDefault();
+        saveSettings({ ...settings, bookmarksOnly: !settings.bookmarksOnly });
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [settings]);
 
   if (!isDesktop) return null;
 
