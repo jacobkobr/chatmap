@@ -2,6 +2,7 @@ import { removeShadowHost } from "./shadowRoot";
 
 // injects the highlight style sheet into host page once
 let highlightStyleInjected = false;
+let nativeTocHiderInjected = false;
 
 export function injectHighlightStyle(): void {
   if (highlightStyleInjected) return;
@@ -44,10 +45,28 @@ export function injectHighlightStyle(): void {
   document.head.appendChild(style);
 }
 
+// hides chatgpt's own prompt-toc rail (the column of "Prompt 1/2/3..." dot
+// buttons it ships now). class names on the wrapper are auto-generated and
+// not stable, so we anchor on the buttons' aria-labels which *are* stable,
+// and walk up to the container via :has(). modern chrome supports :has().
+export function injectNativeTocHider(): void {
+  if (nativeTocHiderInjected) return;
+  nativeTocHiderInjected = true;
+
+  const style = document.createElement("style");
+  style.dataset.chatmap = "native-toc-hider";
+  style.textContent =
+    'div:has(> button[aria-label^="Prompt "]){display:none!important;}';
+  document.head.appendChild(style);
+}
+
 export function teardown(): void {
   removeShadowHost();
-  // remove highlight style
+  // remove injected styles + reset flags so a remount re-injects them
   document.querySelector("style[data-chatmap='highlight']")?.remove();
+  document.querySelector("style[data-chatmap='native-toc-hider']")?.remove();
+  highlightStyleInjected = false;
+  nativeTocHiderInjected = false;
   // clean up data attributes we stamped on message elements
   document.querySelectorAll<HTMLElement>("[data-chatmap-id]").forEach((el) => {
     delete el.dataset.chatmapId;

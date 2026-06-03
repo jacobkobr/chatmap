@@ -2,7 +2,7 @@ import { createRoot } from "react-dom/client";
 import { getActiveAdapter, registerAdapter } from "../adapters/registry";
 import chatgptAdapter from "../adapters/chatgpt";
 import { createShadowHost } from "./shadowRoot";
-import { injectHighlightStyle, teardown } from "./cleanup";
+import { injectHighlightStyle, injectNativeTocHider, teardown } from "./cleanup";
 import { watchNavigation } from "./navigation";
 import { loadSettings, onSettingsChanged } from "../storage/settings";
 import { Minimap } from "../minimap/Minimap";
@@ -41,6 +41,7 @@ function mountSync(settings: ChatMapSettings) {
   if (document.getElementById(MINIMAP_HOST_ID)) return;
 
   injectHighlightStyle();
+  injectNativeTocHider();
 
   const { host, shadow } = createShadowHost(settings.accentColor, settings.markerSize);
   document.documentElement.dataset.chatmapAccent = settings.accentColor;
