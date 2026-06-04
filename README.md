@@ -66,10 +66,28 @@ Jump to the previous bookmark:
 Alt + Shift + W
 ```
 
+Toggle bookmarks-only view:
+
+```text
+Alt + Shift + H
+```
+
 Jump to the next bookmark:
 
 ```text
 Alt + Shift + S
+```
+
+Export chat:
+
+```text
+Alt + Shift + E
+```
+
+Scroll through messages one at a time:
+
+```text
+Alt + Shift + Scroll
 ```
 
 You can change shortcut settings from the extension popup.
