@@ -11,6 +11,7 @@ import { PreviewCard } from "./PreviewCard";
 import { BookmarkEditor } from "./BookmarkEditor";
 import { ScanOffer } from "./ScanOffer";
 import { Tutorial } from "./Tutorial";
+import { ExportDialog } from "../export/ExportDialog";
 import { useBookmarks } from "./useBookmarks";
 import { isMarkerVisible } from "./markerClassifier";
 import {
@@ -430,6 +431,11 @@ export function Minimap({ adapter, settings }: Props) {
   // keybind specifically (vs an editor-saved bookmark, which also grows the
   // bookmark map). bumped inside the quickBookmark keydown handler.
   const [quickBookmarkFires, setQuickBookmarkFires] = useState(0);
+  // export dialog visibility — opened via keybind or rail button.
+  const [showExport, setShowExport] = useState(false);
+  // monotonic counter the tutorial watches to know when the export step has
+  // been triggered. bumped each time the dialog is opened from this rail.
+  const [exportOpens, setExportOpens] = useState(0);
   const bookmarks = useBookmarks();
   const convId = useMemo(() => getConversationId(), [messages.length]);
 
@@ -1382,10 +1388,10 @@ export function Minimap({ adapter, settings }: Props) {
     bookmarkFor,
   ]);
 
-  // toggle the bookmarks-only rail filter via keybind. ignores typing-in-input
-  // focus the same way the other keybinds do.
+  // toggle the bookmarks-only filter + open the export dialog. both keybinds
+  // ignore typing-in-input focus the same way the rest of our keybinds do.
   useEffect(() => {
-    const { toggleBookmarksOnly } = settings.keybinds;
+    const { toggleBookmarksOnly, exportBookmarks } = settings.keybinds;
     function onKey(e: KeyboardEvent) {
       const t = (e.composedPath()[0] ?? e.target) as HTMLElement | null;
       const tag = t?.tagName;
@@ -1393,13 +1399,51 @@ export function Minimap({ adapter, settings }: Props) {
       if (toggleBookmarksOnly && matchesKeybind(e, toggleBookmarksOnly)) {
         e.preventDefault();
         saveSettings({ ...settings, bookmarksOnly: !settings.bookmarksOnly });
+        return;
+      }
+      if (exportBookmarks && matchesKeybind(e, exportBookmarks)) {
+        e.preventDefault();
+        setShowExport(true);
+        setExportOpens((n) => n + 1);
       }
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [settings]);
 
-  if (!isDesktop) return null;
+  // walk the live dom for the currently-open chat and grab full message text
+  // for every bookmarked message. cache only stores 160-char previews so the
+  // dom is the only place to get the rest; non-open chats fall back to the
+  // preview inside the exporter. dug into [data-message-author-role] to skip
+  // role labels and action rows.
+  const buildLiveText = useCallback((): Record<string, Record<string, string>> => {
+    if (!convId) return {};
+    const out: Record<string, string> = {};
+    for (const msg of messages) {
+      const el = msg.element;
+      if (!el || !document.contains(el)) continue;
+      const root =
+        el.querySelector<HTMLElement>("[data-message-author-role]") ?? el;
+      const text = (root.textContent || "").trim();
+      if (!text) continue;
+      const k = bookmarkKey(convId, msg.domAnchor, msg.chatgptMsgId);
+      if (k && bookmarks[k]) out[k] = text;
+      const legacy = legacyBookmarkKey(convId, msg.domAnchor);
+      if (legacy && bookmarks[legacy]) out[legacy] = text;
+    }
+    return { [convId]: out };
+  }, [convId, messages, bookmarks]);
+
+  if (!isDesktop) {
+    // mobile/narrow viewport: rail is hidden, but the export dialog can still
+    // be triggered via the keybind, so render just that.
+    return showExport ? (
+      <ExportDialog
+        liveText={buildLiveText()}
+        onClose={() => setShowExport(false)}
+      />
+    ) : null;
+  }
 
   function expand() {
     if (collapseTimer.current) clearTimeout(collapseTimer.current);
@@ -1476,7 +1520,7 @@ export function Minimap({ adapter, settings }: Props) {
   // is bounded so a stale future value never re-opens it.
   const tutorialActive =
     settings.tutorialState === "pending" &&
-    settings.tutorialStep < 3 &&
+    settings.tutorialStep < 4 &&
     messages.length >= 2;
 
   const handleTutorialAdvance = useCallback(() => {
@@ -1491,6 +1535,12 @@ export function Minimap({ adapter, settings }: Props) {
 
   return (
     <>
+      {showExport && (
+        <ExportDialog
+          liveText={buildLiveText()}
+          onClose={() => setShowExport(false)}
+        />
+      )}
       {showScanOffer && (
         <ScanOffer
           scanning={isScanning}
@@ -1504,6 +1554,7 @@ export function Minimap({ adapter, settings }: Props) {
           step={settings.tutorialStep}
           bookmarkCount={Object.keys(bookmarks).length}
           quickBookmarkFireCount={quickBookmarkFires}
+          exportOpenCount={exportOpens}
           modifierLabel={
             formatKeybind(settings.keybinds.editBookmark) || "Alt + Shift"
           }
@@ -1518,6 +1569,9 @@ export function Minimap({ adapter, settings }: Props) {
           }
           prevLabel={
             formatKeybind(settings.keybinds.prevImportant) || "Alt + Shift + W"
+          }
+          exportKeyLabel={
+            formatKeybind(settings.keybinds.exportBookmarks) || "Alt + Shift + E"
           }
           onAdvance={handleTutorialAdvance}
           onSkip={handleTutorialSkip}

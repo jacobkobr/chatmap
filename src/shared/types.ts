@@ -62,7 +62,7 @@ export interface ConvCache {
   offerDismissed: boolean;
 }
 
-export type AccentColor = "gray" | "white" | "blue" | "purple" | "green" | "orange" | "pink" | "sparkle";
+export type AccentColor = "gray" | "white" | "blue" | "purple" | "green" | "orange" | "pink" | "sparkle" | "custom";
 
 export type MarkerSize = "normal" | "large";
 
@@ -95,6 +95,8 @@ export interface ChatMapKeybinds {
   quickBookmark: Keybind;
   // toggle the bookmarks-only rail filter on the fly.
   toggleBookmarksOnly: Keybind;
+  // open the export-bookmarks dialog from any chatgpt tab.
+  exportBookmarks: Keybind;
 }
 
 export interface ChatMapSettings {
@@ -122,6 +124,9 @@ export interface ChatMapSettings {
   // when on, the rail only shows messages that have a bookmark. toggled at
   // runtime via keybind so a long-chat reader can switch into "outline" view.
   bookmarksOnly: boolean;
+  // hex used when accentColor === "custom". the rail's full set of accent
+  // css vars is derived from this single value at runtime.
+  customAccentColor: string;
 }
 
 export type TutorialState = "pending" | "completed" | "skipped";

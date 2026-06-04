@@ -9,6 +9,38 @@ import { Minimap } from "../minimap/Minimap";
 import type { ChatMapSettings } from "../shared/types";
 import { MINIMAP_HOST_ID, DEFAULT_SETTINGS } from "../shared/constants";
 import { isExtensionAlive } from "../shared/extensionContext";
+import { deriveAccentVars, deriveHaloShadow } from "../shared/accentVars";
+
+// every accent var we set inline for "custom" mode. the named accents drive
+// these via :host([data-accent="X"]) css rules; for custom we clear those
+// rules out (no match) and set them inline instead.
+const ACCENT_VARS = [
+  "--m-user",
+  "--m-asst",
+  "--m-user-active",
+  "--m-asst-active",
+  "--accent",
+  "--accent-hover",
+  "--accent-soft",
+  "--accent-fg",
+] as const;
+
+// apply (or clear) the per-host inline accent variables. clearing lets the
+// css :host([data-accent=...]) rules take over again when the user switches
+// back from custom to a named palette.
+function applyAccent(host: HTMLElement, settings: ChatMapSettings) {
+  if (settings.accentColor === "custom") {
+    const vars = deriveAccentVars(settings.customAccentColor);
+    for (const k of ACCENT_VARS) host.style.setProperty(k, vars[k]);
+    document.documentElement.style.setProperty(
+      "--chatmap-halo",
+      deriveHaloShadow(settings.customAccentColor)
+    );
+  } else {
+    for (const k of ACCENT_VARS) host.style.removeProperty(k);
+    document.documentElement.style.removeProperty("--chatmap-halo");
+  }
+}
 
 registerAdapter(chatgptAdapter);
 
@@ -45,6 +77,7 @@ function mountSync(settings: ChatMapSettings) {
 
   const { host, shadow } = createShadowHost(settings.accentColor, settings.markerSize);
   document.documentElement.dataset.chatmapAccent = settings.accentColor;
+  applyAccent(host, settings);
   document.body.appendChild(host);
 
   const mountPoint = document.createElement("div");
@@ -74,6 +107,7 @@ async function mount() {
     // mirror onto <html> so the page-level highlight css (injected outside
     // the shadow root) can pick the matching halo color.
     document.documentElement.dataset.chatmapAccent = settings.accentColor;
+    if (host) applyAccent(host, settings);
     render(settings);
   } catch (_) {
     // storage read failed — defaults are already rendered, keep them
@@ -103,6 +137,7 @@ async function init() {
     // mirror onto <html> so the page-level highlight css (injected outside
     // the shadow root) can pick the matching halo color.
     document.documentElement.dataset.chatmapAccent = settings.accentColor;
+    if (host) applyAccent(host, settings);
     render(settings);
   });
 

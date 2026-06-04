@@ -4,6 +4,17 @@ import { isExtensionAlive } from "../shared/extensionContext";
 
 type CacheMap = Record<string, ConvCache>;
 
+// load every cached conversation. used by the export flow to surface every
+// chat that has bookmarks, not just the currently-open one.
+export async function loadAllCaches(): Promise<CacheMap> {
+  if (!isExtensionAlive()) return {};
+  return new Promise((resolve) => {
+    chrome.storage.local.get(MARKER_CACHE_STORAGE_KEY, (result) => {
+      resolve((result[MARKER_CACHE_STORAGE_KEY] as CacheMap) ?? {});
+    });
+  });
+}
+
 // load the cache entry for a single conversation. returns null when nothing
 // has been stored for it yet — caller treats that as a fresh chat.
 export async function loadCache(convId: string): Promise<ConvCache | null> {

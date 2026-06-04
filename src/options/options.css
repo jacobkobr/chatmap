@@ -466,6 +466,23 @@ button {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+.options-button-row {
+  display: flex;
+  gap: 8px;
+}
+.options-button-row .reset-btn { flex: 1; }
+
+/* accent row keeps the select stretching to fill, with the swatch picker
+   slotted on the right — mirrors the quick-bookmark row's layout. */
+.accent-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.accent-row .select-row {
+  flex: 1;
+}
+
 /* ── size picker (normal vs large markers) ────────────────── */
 .size-picker {
   padding: 8px 0 4px;

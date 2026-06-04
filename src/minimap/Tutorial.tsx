@@ -7,6 +7,10 @@ interface Props {
   // step 2 watches this so we can tell a 'B'-triggered bookmark apart from
   // one added via the editor (both grow bookmarkCount).
   quickBookmarkFireCount: number;
+  // monotonic counter that bumps every time the export dialog is opened —
+  // used to auto-advance the export step the same way the other steps
+  // detect their own action.
+  exportOpenCount: number;
   // labels for the keybinds the tutorial demonstrates, so renaming a default
   // in settings flows through to the body copy.
   modifierLabel: string;
@@ -14,12 +18,13 @@ interface Props {
   scrollNavLabel: string;
   nextLabel: string;
   prevLabel: string;
+  exportKeyLabel: string;
   onAdvance: () => void;
   onSkip: () => void;
   onComplete: () => void;
 }
 
-const TOTAL_STEPS = 3;
+const TOTAL_STEPS = 4;
 // how long the "completed" check stays visible before the next step opens.
 // long enough to register, short enough not to drag the walkthrough.
 const COMPLETE_DELAY_MS = 700;
@@ -28,11 +33,13 @@ export function Tutorial({
   step,
   bookmarkCount,
   quickBookmarkFireCount,
+  exportOpenCount,
   modifierLabel,
   quickKeyLabel,
   scrollNavLabel,
   nextLabel,
   prevLabel,
+  exportKeyLabel,
   onAdvance,
   onSkip,
   onComplete,
@@ -41,6 +48,7 @@ export function Tutorial({
   // auto-advance the moment the step opens. reset whenever step changes.
   const bookmarkBaseline = useRef(bookmarkCount);
   const quickBaseline = useRef(quickBookmarkFireCount);
+  const exportBaseline = useRef(exportOpenCount);
   // brief "✓ got it" state between the user completing an action and the
   // tutorial advancing to the next step. resets on step change.
   const [justCompleted, setJustCompleted] = useState(false);
@@ -99,6 +107,7 @@ export function Tutorial({
   useEffect(() => {
     bookmarkBaseline.current = bookmarkCount;
     quickBaseline.current = quickBookmarkFireCount;
+    exportBaseline.current = exportOpenCount;
     setJustCompleted(false);
     // intentionally depend only on `step` — we snapshot the others at this
     // moment and want them captured, not tracked.
@@ -120,6 +129,16 @@ export function Tutorial({
       setJustCompleted(true);
     }
   }, [step, quickBookmarkFireCount, justCompleted]);
+
+  useEffect(() => {
+    if (
+      step === 2 &&
+      !justCompleted &&
+      exportOpenCount > exportBaseline.current
+    ) {
+      setJustCompleted(true);
+    }
+  }, [step, exportOpenCount, justCompleted]);
 
   useEffect(() => {
     if (!justCompleted) return;
@@ -158,6 +177,20 @@ export function Tutorial({
         </p>
         <p>
           <strong>Try it:</strong> press <kbd>{quickKeyLabel}</kbd>.
+        </p>
+      </>
+    );
+  } else if (step === 2) {
+    title = "Take your bookmarks with you";
+    body = (
+      <>
+        <p>
+          Bookmarked messages can be bundled into Markdown, PDF, HTML, or
+          JSON. Useful for handing context to Claude or another model,
+          pasting into notes, or keeping a snapshot.
+        </p>
+        <p>
+          <strong>Try it:</strong> press <kbd>{exportKeyLabel}</kbd>.
         </p>
       </>
     );

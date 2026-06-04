@@ -52,6 +52,13 @@ export const DEFAULT_KEYBINDS = {
     metaKey: false,
     key: "h",
   },
+  exportBookmarks: {
+    altKey: true,
+    shiftKey: true,
+    ctrlKey: false,
+    metaKey: false,
+    key: "e",
+  },
 };
 
 export const DEFAULT_SETTINGS = {
@@ -68,6 +75,7 @@ export const DEFAULT_SETTINGS = {
   tutorialState: "pending" as const,
   tutorialStep: 0,
   bookmarksOnly: false,
+  customAccentColor: "#a3a3a3",
 };
 
 export const BOOKMARKS_STORAGE_KEY = "chatmap-bookmarks";

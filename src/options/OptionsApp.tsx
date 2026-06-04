@@ -9,7 +9,41 @@ import type {
 } from "../shared/types";
 import { DEFAULT_KEYBINDS, DEFAULT_SETTINGS } from "../shared/constants";
 import { formatKeybind } from "../shared/keybinds";
+import { ExportDialog } from "../export/ExportDialog";
 import "./options.css";
+
+// canonical hex per named accent — mirrors the --accent values in options.css
+// so the color picker reflects whichever palette is currently active.
+const ACCENT_HEX: Record<string, string> = {
+  blue: "#2596be",
+  gray: "#a3a3a3",
+  white: "#fafafa",
+  purple: "#8b5cf6",
+  green: "#22c55e",
+  orange: "#f97316",
+  pink: "#ec4899",
+  sparkle: "#c084fc",
+};
+
+// convert "#rrggbb" → "r,g,b" for rgba() composition.
+function hexToRgbTuple(hex: string): string {
+  let h = hex.replace(/^#/, "");
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  const r = parseInt(h.slice(0, 2), 16) || 0;
+  const g = parseInt(h.slice(2, 4), 16) || 0;
+  const b = parseInt(h.slice(4, 6), 16) || 0;
+  return `${r},${g},${b}`;
+}
+
+// approximate luminance — picks black or white foreground for contrast.
+function pickFg(hex: string): string {
+  let h = hex.replace(/^#/, "");
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  const r = parseInt(h.slice(0, 2), 16) || 0;
+  const g = parseInt(h.slice(2, 4), 16) || 0;
+  const b = parseInt(h.slice(4, 6), 16) || 0;
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6 ? "#0a0a0a" : "#ffffff";
+}
 
 function Toggle({
   label,
@@ -205,6 +239,7 @@ function KeyRecorder({
 function OptionsApp() {
   const [settings, setSettings] = useState<ChatMapSettings>(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
+  const [showExport, setShowExport] = useState(false);
 
   useEffect(() => {
     loadSettings().then((s) => {
@@ -253,8 +288,33 @@ function OptionsApp() {
     }));
   }
 
+  // picker shows the effective accent hex — custom value when in custom mode,
+  // otherwise the named palette's hex so switching the dropdown updates the
+  // swatch in lockstep.
+  const pickerHex =
+    settings.accentColor === "custom"
+      ? settings.customAccentColor
+      : ACCENT_HEX[settings.accentColor] ?? settings.customAccentColor;
+
+  // when accent is custom, drive the options page's --accent vars inline since
+  // options.css has no [data-accent="custom"] rule. without this, every
+  // accent-tinted control on this page falls back to the :root default (aqua).
+  const customStyle: React.CSSProperties =
+    settings.accentColor === "custom"
+      ? ({
+          "--accent": settings.customAccentColor,
+          "--accent-hover": settings.customAccentColor,
+          "--accent-soft": `rgba(${hexToRgbTuple(settings.customAccentColor)},0.24)`,
+          "--accent-fg": pickFg(settings.customAccentColor),
+        } as React.CSSProperties)
+      : {};
+
   return (
-    <main className="options-root" data-accent={settings.accentColor}>
+    <main
+      className="options-root"
+      data-accent={settings.accentColor}
+      style={customStyle}
+    >
 
 
       <section className="options-card">
@@ -289,13 +349,22 @@ function OptionsApp() {
           onChange={(v) => update({ markerSize: v })}
         />
 
-        <button
-          type="button"
-          className="reset-btn"
-          onClick={restartTutorial}
-        >
-          Restart tutorial
-        </button>
+        <div className="options-button-row">
+          <button
+            type="button"
+            className="reset-btn"
+            onClick={restartTutorial}
+          >
+            Restart tutorial
+          </button>
+          <button
+            type="button"
+            className="reset-btn"
+            onClick={() => setShowExport(true)}
+          >
+            Export bookmarks…
+          </button>
+        </div>
       </section>
 
       <section className="options-card">
@@ -317,21 +386,37 @@ function OptionsApp() {
       <section className="options-card">
         <div className="section-title">Appearance</div>
 
-        <Select
-          label="Accent color"
-          value={settings.accentColor}
-          options={[
-            { value: "blue", label: "Aqua" },
-            { value: "gray", label: "Gray" },
-            { value: "white", label: "White" },
-            { value: "purple", label: "Purple" },
-            { value: "green", label: "Green" },
-            { value: "orange", label: "Orange" },
-            { value: "pink", label: "Pink" },
-            { value: "sparkle", label: "Sparkle" },
-          ]}
-          onChange={(v) => update({ accentColor: v })}
-        />
+        <div className="accent-row">
+          <Select
+            label="Accent color"
+            value={settings.accentColor}
+            options={[
+              { value: "blue", label: "Aqua" },
+              { value: "gray", label: "Gray" },
+              { value: "white", label: "White" },
+              { value: "purple", label: "Purple" },
+              { value: "green", label: "Green" },
+              { value: "orange", label: "Orange" },
+              { value: "pink", label: "Pink" },
+              { value: "sparkle", label: "Sparkle" },
+              { value: "custom", label: "Custom" },
+            ]}
+            onChange={(v) => update({ accentColor: v })}
+          />
+          <input
+            type="color"
+            className="kb-color-input"
+            aria-label="Custom accent color"
+            title="Custom accent color"
+            value={pickerHex}
+            onChange={(e) =>
+              update({
+                customAccentColor: e.target.value,
+                accentColor: "custom",
+              })
+            }
+          />
+        </div>
       </section>
 
       <section className="options-card">
@@ -339,7 +424,7 @@ function OptionsApp() {
 
         <div className="kb-row">
           <div className="kb-row-label">
-            Edit bookmark
+            Add/Edit bookmark
             <span className="kb-row-hint">click a marker while holding</span>
           </div>
           <div className="kb-row-binding">
@@ -413,10 +498,24 @@ function OptionsApp() {
           />
         </div>
 
+        <div className="kb-row">
+          <div className="kb-row-label">
+            Export bookmarks/conversation
+            <span className="kb-row-hint">open the export dialog</span>
+          </div>
+          <KeyRecorder
+            bind={settings.keybinds.exportBookmarks}
+            onChange={(next) => updateBind("exportBookmarks", next)}
+          />
+        </div>
+
         <button type="button" className="reset-btn" onClick={resetKeybinds}>
           Reset shortcuts
         </button>
       </section>
+      {showExport && (
+        <ExportDialog onClose={() => setShowExport(false)} />
+      )}
     </main>
   );
 }
