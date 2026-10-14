@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "chatmap",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Adds a hoverable minimap to long ChatGPT conversations so you can jump between messages, code blocks, links, and important answers.",
   "permissions": ["storage"],
   "action": {

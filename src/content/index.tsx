@@ -10,6 +10,7 @@ import type { ChatMapSettings } from "../shared/types";
 import { MINIMAP_HOST_ID, DEFAULT_SETTINGS } from "../shared/constants";
 import { isExtensionAlive } from "../shared/extensionContext";
 import { deriveAccentVars, deriveHaloShadow } from "../shared/accentVars";
+import { startBookmarkButtons, type BookmarkButtonsHandle } from "./bookmarkButton";
 
 // every accent var we set inline for "custom" mode. the named accents drive
 // these via :host([data-accent="X"]) css rules; for custom we clear those
@@ -48,6 +49,19 @@ let reactRoot: ReturnType<typeof createRoot> | null = null;
 let stopWatchingSettings: (() => void) | null = null;
 let stopWatchingNav: (() => void) | null = null;
 let contextWatch: ReturnType<typeof setInterval> | null = null;
+let bookmarkBtns: BookmarkButtonsHandle | null = null;
+
+// start-or-update the inline bookmark star injected into chatgpt's own
+// action row. idempotent — safe to call on every settings change.
+function syncBookmarkButtons(settings: ChatMapSettings) {
+  if (!bookmarkBtns) bookmarkBtns = startBookmarkButtons(settings);
+  else bookmarkBtns.updateSettings(settings);
+}
+
+function stopBookmarkButtons() {
+  bookmarkBtns?.stop();
+  bookmarkBtns = null;
+}
 
 function render(settings: ChatMapSettings) {
   const adapter = getActiveAdapter();
@@ -58,6 +72,7 @@ function render(settings: ChatMapSettings) {
 function unmount() {
   reactRoot?.unmount();
   reactRoot = null;
+  stopBookmarkButtons();
   teardown();
 }
 
@@ -85,6 +100,7 @@ function mountSync(settings: ChatMapSettings) {
 
   reactRoot = createRoot(mountPoint);
   render(settings);
+  syncBookmarkButtons(settings);
 }
 
 async function mount() {
@@ -109,6 +125,7 @@ async function mount() {
     document.documentElement.dataset.chatmapAccent = settings.accentColor;
     if (host) applyAccent(host, settings);
     render(settings);
+    syncBookmarkButtons(settings);
   } catch (_) {
     // storage read failed — defaults are already rendered, keep them
   }
@@ -139,6 +156,7 @@ async function init() {
     document.documentElement.dataset.chatmapAccent = settings.accentColor;
     if (host) applyAccent(host, settings);
     render(settings);
+    syncBookmarkButtons(settings);
   });
 
   stopWatchingNav = watchNavigation(remount);
