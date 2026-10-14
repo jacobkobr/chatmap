@@ -133,6 +133,26 @@ async function loadConversationFromApi(convId: string): Promise<ApiMessage[]> {
   return merged;
 }
 
+// current chatgpt (post-2026 dom rewrite) stamps each visible turn with
+// `data-chatgpt-search-unit-key="fallback-turn-{N}:{slot}:{role}"`, carries
+// the message uuid(s) in `data-chatgpt-search-message-ids` on the same
+// wrapper, and uses `data-user-message-bubble` / `data-dil-message-id` /
+// `data-markdown-copy` for the message bodies. the legacy selectors
+// (`conversation-turn-N`, `data-message-author-role`, `data-message-id`,
+// `.markdown` / `prose`) are still queried as a fallback so a user on a
+// pre-rollout client keeps a working rail.
+const UNIT_KEY = "data-chatgpt-search-unit-key";
+const USER_BUBBLE = "data-user-message-bubble";
+const ASSISTANT_MSG_ID = "data-dil-message-id";
+const ASSISTANT_CONTENT = "data-markdown-copy";
+
+function roleFromUnitKey(key: string | null): ChatMessageRole | null {
+  if (!key) return null;
+  if (key.endsWith(":user")) return "user";
+  if (key.endsWith(":assistant")) return "assistant";
+  return null;
+}
+
 function isExcluded(el: HTMLElement): boolean {
   if (el.closest("nav")) return true;
   if (el.closest("[role='dialog'], [role='alertdialog']")) return true;
@@ -158,6 +178,7 @@ const chatgptAdapter: ChatSiteAdapter = {
 
   getConversationRoot(): HTMLElement | null {
     return (
+      document.querySelector<HTMLElement>(".thread-scroll-container") ??
       document.querySelector<HTMLElement>("main [class*='react-scroll-to-bottom']") ??
       document.querySelector<HTMLElement>("main") ??
       document.body
@@ -165,11 +186,19 @@ const chatgptAdapter: ChatSiteAdapter = {
   },
 
   getMessageElements(root: HTMLElement): HTMLElement[] {
-    // conversation-turn-N containers bundle the full turn (text + attachments + images).
-    // accept turns with an explicit author-role OR turns containing prose/
-    // markdown content. instant-answer-mode assistant turns sometimes ship
-    // without `data-message-author-role` on the response wrapper, so the
-    // prose hooks are the only reliable signal that content exists.
+    // primary (current dom): one wrapper per visible message, role baked
+    // into the search-unit-key suffix. filter out any search-unit-key
+    // values whose role is neither user nor assistant (shouldn't happen,
+    // but guards against future variants like `:system`).
+    const byUnit = Array.from(
+      root.querySelectorAll<HTMLElement>(`[${UNIT_KEY}]`)
+    )
+      .filter((el) => !isExcluded(el))
+      .filter((el) => roleFromUnitKey(el.getAttribute(UNIT_KEY)) !== null);
+
+    if (byUnit.length > 0) return keepOutermost(byUnit);
+
+    // legacy: pre-rewrite conversation-turn-N wrappers.
     const byTurn = Array.from(
       root.querySelectorAll<HTMLElement>("[data-testid^='conversation-turn-']")
     )
@@ -191,16 +220,19 @@ const chatgptAdapter: ChatSiteAdapter = {
   },
 
   getMessageRole(element: HTMLElement): ChatMessageRole {
-    // direct attribute (fallback path — when getMessageElements returned
-    // the author-role node itself)
+    // primary: role encoded in the search-unit-key suffix.
+    const unit = roleFromUnitKey(element.getAttribute(UNIT_KEY));
+    if (unit) return unit;
+
+    // legacy direct attribute (when getMessageElements returned the
+    // author-role node itself)
     const direct = element.getAttribute("data-message-author-role");
     if (direct === "user") return "user";
     if (direct === "assistant") return "assistant";
 
-    // scan ALL descendants with the attribute and prefer 'assistant'. some
-    // chatgpt modes (instant answer) nest a user-role node inside the
-    // assistant turn (likely the prompt echo / citation block), and the
-    // previous first-match lookup mis-labeled the entire turn as user.
+    // legacy: scan all descendants with the attribute and prefer 'assistant'.
+    // some older chatgpt modes nested a user-role node inside the assistant
+    // turn, and the previous first-match lookup mis-labeled the whole turn.
     const children = element.querySelectorAll<HTMLElement>("[data-message-author-role]");
     let hasUser = false;
     for (const c of children) {
@@ -209,9 +241,14 @@ const chatgptAdapter: ChatSiteAdapter = {
       if (r === "user") hasUser = true;
     }
 
-    // last-resort: if a prose/markdown body exists outside any user-role
-    // descendant, it's an assistant response. covers turns where the role
-    // attribute is absent entirely.
+    // structural fallbacks for the new dom (used when a search-unit-key
+    // wrapper is absent for some reason — e.g. a partial/streaming mount).
+    if (element.querySelector(`[${USER_BUBBLE}]`)) return "user";
+    if (element.querySelector(`[${ASSISTANT_MSG_ID}], [${ASSISTANT_CONTENT}="contents"]`)) {
+      return "assistant";
+    }
+
+    // last-resort: prose/markdown body outside any user-role descendant.
     const prose = element.querySelector<HTMLElement>(
       ".markdown, [class*='markdown'], [class*='prose']"
     );
@@ -225,14 +262,26 @@ const chatgptAdapter: ChatSiteAdapter = {
   },
 
   getMessageText(element: HTMLElement): string {
-    // prefer prose / markdown container — clean assistant body, no role label
+    // new dom: user bubble body (no "You said:" prefix, no action buttons).
+    const userBubble = element.querySelector<HTMLElement>(`[${USER_BUBBLE}]`);
+    if (userBubble) return safeTextContent(userBubble);
+
+    // new dom: assistant markdown wrapper or dil renderer root. prefer the
+    // markdown-copy="contents" node because it mirrors what chatgpt's own
+    // copy-button exports — stripped of role labels and action rows.
+    const assistantContent = element.querySelector<HTMLElement>(
+      `[${ASSISTANT_CONTENT}="contents"]`
+    );
+    if (assistantContent) return safeTextContent(assistantContent);
+    const dilRoot = element.querySelector<HTMLElement>(`[${ASSISTANT_MSG_ID}]`);
+    if (dilRoot) return safeTextContent(dilRoot);
+
+    // legacy
     const prose = element.querySelector<HTMLElement>(
       "[class*='prose'], .markdown, [class*='markdown']"
     );
     if (prose) return safeTextContent(prose);
 
-    // user messages don't use prose; the author-role node itself holds the
-    // message body without the "You said:" label that wraps it
     const authored = element.querySelector<HTMLElement>(
       "[data-message-author-role='user'], [data-message-author-role='assistant']"
     );

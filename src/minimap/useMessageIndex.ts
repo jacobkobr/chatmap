@@ -27,22 +27,42 @@ function buildRecords(
       el.dataset.chatmapId = id;
     }
 
-    // sort key — turn number from data-testid, or fallback to discovery order
+    // sort key — turn number parsed from the current search-unit-key
+    // (`fallback-turn-{N}:…`), or from the legacy conversation-turn-N
+    // testid, or discovery order.
     if (!el.dataset.chatmapOrder) {
-      const m = el.getAttribute("data-testid")?.match(/(\d+)$/);
-      el.dataset.chatmapOrder = m ? m[1] : String(Date.now() + i);
+      const unitN = el.getAttribute("data-chatgpt-search-unit-key")?.match(/-turn-(\d+)/);
+      if (unitN) {
+        el.dataset.chatmapOrder = unitN[1];
+      } else {
+        const m = el.getAttribute("data-testid")?.match(/(\d+)$/);
+        el.dataset.chatmapOrder = m ? m[1] : String(Date.now() + i);
+      }
     }
 
-    // canonical dom anchor — survives react re-renders that drop our stamped
-    // dataset attributes. chatgpt uses conversation-turn-N which is stable
-    // across virtualization and rebuilds.
-    const domAnchor = el.getAttribute("data-testid") ?? undefined;
+    // canonical dom anchor — survives react re-renders that drop our
+    // stamped dataset attributes. prefer the current search-unit-key
+    // (stable across virtualization and rebuilds, encodes role); fall back
+    // to the legacy conversation-turn-N testid.
+    const domAnchor =
+      el.getAttribute("data-chatgpt-search-unit-key") ??
+      el.getAttribute("data-testid") ??
+      undefined;
 
-    // chatgpt's internal message uuid lives on the inner author-role node
-    // (data-message-id). this is the same id the backend api returns, so
-    // it's the canonical key for matching api-seeded records to live dom.
-    const inner = el.querySelector<HTMLElement>("[data-message-author-role]");
-    const chatgptMsgId = inner?.getAttribute("data-message-id") ?? undefined;
+    // chatgpt's internal message uuid. new dom stamps it (space-separated
+    // when a response was internally collapsed from several nodes) on the
+    // wrapper's data-chatgpt-search-message-ids. assistant bodies also
+    // carry data-dil-message-id. legacy dom nested data-message-id under
+    // [data-message-author-role].
+    const msgIdsAttr = el.getAttribute("data-chatgpt-search-message-ids");
+    const firstMsgId = msgIdsAttr?.split(/\s+/).find((s) => s.length > 0);
+    const innerDil = el.querySelector<HTMLElement>("[data-dil-message-id]");
+    const innerLegacy = el.querySelector<HTMLElement>("[data-message-author-role]");
+    const chatgptMsgId =
+      firstMsgId ??
+      innerDil?.getAttribute("data-dil-message-id") ??
+      innerLegacy?.getAttribute("data-message-id") ??
+      undefined;
 
     // use adapter.getMessageText (targets prose/markdown container) for the
     // preview so we skip the surrounding role labels and reasoning chips,
@@ -77,9 +97,12 @@ function isStreamingNow(): boolean {
 }
 
 function isNearBottom(): boolean {
-  // check the main inner scroll container chatgpt uses
-  const inner = document.querySelector<HTMLElement>("main [class*='react-scroll-to-bottom'] > div > div");
-  if (inner) return inner.scrollHeight - inner.scrollTop - inner.clientHeight < 300;
+  // current chatgpt uses `.thread-scroll-container`; legacy build nests the
+  // scroll node under `main [class*='react-scroll-to-bottom']`.
+  const container =
+    document.querySelector<HTMLElement>(".thread-scroll-container") ??
+    document.querySelector<HTMLElement>("main [class*='react-scroll-to-bottom'] > div > div");
+  if (container) return container.scrollHeight - container.scrollTop - container.clientHeight < 300;
   return document.documentElement.scrollHeight - window.scrollY - window.innerHeight < 300;
 }
 

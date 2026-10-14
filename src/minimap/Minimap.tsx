@@ -33,10 +33,15 @@ interface Props {
 const TOP_GAP = 110; // px gap from viewport top after scroll
 
 // find chatgpt's scroll container.
-// current chatgpt uses [data-scroll-root] — confirmed via devtools (scrollHeight ~41k).
-// fall back to largest-scroll-range ancestor for future dom changes.
+// current chatgpt (post-2026 rewrite) uses `.thread-scroll-container`.
+// previous build used `[data-scroll-root]`. the largest-scroll-range
+// ancestor walk is kept as a last-resort fallback for future renames.
 function findScrollContainer(el: HTMLElement): HTMLElement | null {
   // current chatgpt dom
+  const byClass = document.querySelector<HTMLElement>(".thread-scroll-container");
+  if (byClass && byClass.scrollHeight > byClass.clientHeight + 4) return byClass;
+
+  // pre-rewrite chatgpt dom
   const byAttr = document.querySelector<HTMLElement>("[data-scroll-root]");
   if (byAttr && byAttr.scrollHeight > byAttr.clientHeight + 4) return byAttr;
 
@@ -241,10 +246,14 @@ function tweenContainerToMessage(
 // resolve the freshest live dom node for a message. tries (in order):
 //   1. the stored element, if still attached
 //   2. our stamped data-chatmap-id (cheap, may be stripped by react re-renders)
-//   3. chatgpt's data-message-id (canonical, used for api-seeded records)
-//   4. the adapter-supplied dom anchor (conversation-turn-N data-testid)
-// returns null if nothing resolves — caller should treat that as "virtualized
-// out, need to scroll into view first."
+//   3. chatgpt's message uuid: new dom stores it in a space-separated list on
+//      [data-chatgpt-search-message-ids] (wrapper) and on
+//      [data-dil-message-id] (assistant body); legacy nested it under
+//      [data-message-author-role] as data-message-id
+//   4. the adapter-supplied dom anchor: new = search-unit-key value,
+//      legacy = conversation-turn-N data-testid
+// returns null if nothing resolves — caller treats that as "virtualized out,
+// need to estimate-scroll into view first."
 function resolveTarget(msg: ChatMessageRecord): HTMLElement | null {
   if (msg.element && document.contains(msg.element)) return msg.element;
 
@@ -255,6 +264,26 @@ function resolveTarget(msg: ChatMessageRecord): HTMLElement | null {
 
   if (msg.chatgptMsgId) {
     const safe = msg.chatgptMsgId.replace(/"/g, '\\"');
+
+    // current dom: wrapper carries a space-separated id list. `~=` matches
+    // one whitespace-separated token.
+    const byUnit = document.querySelector<HTMLElement>(
+      `[data-chatgpt-search-message-ids~="${safe}"]`
+    );
+    if (byUnit) return byUnit;
+
+    // current dom: assistant body carries its own data-dil-message-id;
+    // climb to the search-unit wrapper so the scroll offset lines up with
+    // the full message block (including role label / action row).
+    const byDil = document.querySelector<HTMLElement>(
+      `[data-dil-message-id="${safe}"]`
+    );
+    if (byDil) {
+      const wrapper = byDil.closest<HTMLElement>("[data-chatgpt-search-unit-key]");
+      return wrapper ?? byDil;
+    }
+
+    // legacy dom
     const inner = document.querySelector<HTMLElement>(
       `[data-message-id="${safe}"]`
     );
@@ -269,6 +298,12 @@ function resolveTarget(msg: ChatMessageRecord): HTMLElement | null {
   if (msg.domAnchor) {
     // escape attribute value just in case future anchors contain quotes
     const safe = msg.domAnchor.replace(/"/g, '\\"');
+    // current dom
+    const byUnitKey = document.querySelector<HTMLElement>(
+      `[data-chatgpt-search-unit-key="${safe}"]`
+    );
+    if (byUnitKey) return byUnitKey;
+    // legacy dom
     const byAnchor = document.querySelector<HTMLElement>(
       `[data-testid="${safe}"]`
     );
@@ -281,8 +316,9 @@ function resolveTarget(msg: ChatMessageRecord): HTMLElement | null {
 // pick any in-dom conversation turn so we can find the scroll container
 // even when the desired message is virtualized out.
 function anyLiveTurn(): HTMLElement | null {
-  return document.querySelector<HTMLElement>(
-    "[data-testid^='conversation-turn-']"
+  return (
+    document.querySelector<HTMLElement>("[data-chatgpt-search-unit-key]") ??
+    document.querySelector<HTMLElement>("[data-testid^='conversation-turn-']")
   );
 }
 
@@ -591,20 +627,35 @@ export function Minimap({ adapter, settings }: Props) {
       if (cancelled) return;
       attempts++;
 
-      // scan the dom for the highest conversation-turn-N. that tells us
-      // how far chatgpt's currently-rendered slice reaches.
+      // scan the dom for the highest rendered turn number. that tells us
+      // how far chatgpt's currently-mounted slice reaches. prefer the
+      // current search-unit-key selector; fall back to legacy testid.
       let maxDomTurn = 0;
       let domTurns = 0;
-      document
-        .querySelectorAll("[data-testid^='conversation-turn-']")
-        .forEach((el) => {
+      const unitEls = document.querySelectorAll("[data-chatgpt-search-unit-key]");
+      if (unitEls.length > 0) {
+        unitEls.forEach((el) => {
           domTurns++;
-          const m = el.getAttribute("data-testid")?.match(/(\d+)$/);
+          const m = el
+            .getAttribute("data-chatgpt-search-unit-key")
+            ?.match(/-turn-(\d+)/);
           if (m) {
             const n = parseInt(m[1]);
             if (n > maxDomTurn) maxDomTurn = n;
           }
         });
+      } else {
+        document
+          .querySelectorAll("[data-testid^='conversation-turn-']")
+          .forEach((el) => {
+            domTurns++;
+            const m = el.getAttribute("data-testid")?.match(/(\d+)$/);
+            if (m) {
+              const n = parseInt(m[1]);
+              if (n > maxDomTurn) maxDomTurn = n;
+            }
+          });
+      }
 
       // coverage: live messages reach the latest visible turn AND there
       // are enough of them to plausibly fill the gap. flip fullyScanned
@@ -678,18 +729,19 @@ export function Minimap({ adapter, settings }: Props) {
       // of scroll range, which is far beyond anything realistic.
       const HARD_CHUNK_CAP = 600;
 
+      const countTurns = () =>
+        document.querySelectorAll(
+          "[data-chatgpt-search-unit-key], [data-testid^='conversation-turn-']"
+        ).length;
+
       const waitForStable = async () => {
         const startTs = performance.now();
-        let lastCount = document.querySelectorAll(
-          "[data-testid^='conversation-turn-']"
-        ).length;
+        let lastCount = countTurns();
         let lastChangeTs = startTs;
         while (true) {
           await new Promise((r) => setTimeout(r, 80));
           const elapsed = performance.now() - startTs;
-          const now = document.querySelectorAll(
-            "[data-testid^='conversation-turn-']"
-          ).length;
+          const now = countTurns();
           if (now !== lastCount) {
             lastCount = now;
             lastChangeTs = performance.now();
@@ -1120,8 +1172,13 @@ export function Minimap({ adapter, settings }: Props) {
       };
 
       const applyHighlight = (turn: HTMLElement) => {
+        // prefer the current dom's semantic bodies so the outline hugs the
+        // message bubble, not the surrounding chrome; legacy selector kept
+        // as a fallback for users on the pre-rewrite client.
         const role =
-          turn.querySelector<HTMLElement>("[data-message-author-role]") ?? turn;
+          turn.querySelector<HTMLElement>(
+            "[data-user-message-bubble], [data-markdown-copy='contents'], [data-dil-message-id], [data-message-author-role]"
+          ) ?? turn;
         const target = findBubble(role);
         // clear any in-flight highlight on other messages so a rapid sequence
         // of jumps fades the old ones out as the new one fades in, rather
@@ -1423,7 +1480,9 @@ export function Minimap({ adapter, settings }: Props) {
       const el = msg.element;
       if (!el || !document.contains(el)) continue;
       const root =
-        el.querySelector<HTMLElement>("[data-message-author-role]") ?? el;
+        el.querySelector<HTMLElement>(
+          "[data-user-message-bubble], [data-markdown-copy='contents'], [data-dil-message-id], [data-message-author-role]"
+        ) ?? el;
       const text = (root.textContent || "").trim();
       if (!text) continue;
       const k = bookmarkKey(convId, msg.domAnchor, msg.chatgptMsgId);
