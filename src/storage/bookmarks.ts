@@ -6,8 +6,13 @@ import { isExtensionAlive } from "../shared/extensionContext";
 // of the bookmark key so two different chats can have bookmarks on the
 // same turn number without colliding. returns null on a fresh chat that
 // hasn't been assigned an id yet.
+//
+// chats inside a project or custom gpt nest under /g/<id>/c/<convId>, so
+// the /g/ segment is optional. the conv id alone stays the key because
+// it's globally unique — bookmarks survive a chat being moved into or
+// out of a project.
 export function getConversationId(): string | null {
-  const m = location.pathname.match(/^\/c\/([^\/]+)/);
+  const m = location.pathname.match(/^(?:\/g\/[^/]+)?\/c\/([^/?#]+)/);
   return m ? m[1] : null;
 }
 
