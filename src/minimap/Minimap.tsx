@@ -1179,7 +1179,13 @@ export function Minimap({ adapter, settings }: Props) {
           turn.querySelector<HTMLElement>(
             "[data-user-message-bubble], [data-markdown-copy='contents'], [data-dil-message-id], [data-message-author-role]"
           ) ?? turn;
-        const target = findBubble(role);
+        // the new dom's user bubble is already the visual bubble, so
+        // descending further only insets the outline by its own padding.
+        // findBubble is still needed for the legacy role wrapper, which
+        // spanned the full column with the bubble nested inside.
+        const target = role.hasAttribute("data-user-message-bubble")
+          ? role
+          : findBubble(role);
         // clear any in-flight highlight on other messages so a rapid sequence
         // of jumps fades the old ones out as the new one fades in, rather
         // than leaving a trail of overlapping highlights.
